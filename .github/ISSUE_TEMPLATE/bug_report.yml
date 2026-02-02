@@ -1,0 +1,105 @@
+name: Bug Report
+description: Report a bug or issue with the MeshCore.Net.SDK
+title: "[BUG]: "
+labels: ["bug", "needs-triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please provide as much detail as possible to help us investigate and fix the issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: SDK Version
+      description: What version of MeshCore.Net.SDK are you using?
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: dotnet-version
+    attributes:
+      label: .NET Version
+      description: What version of .NET are you using?
+      placeholder: e.g., .NET 8.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: What operating system are you using?
+      placeholder: e.g., Windows 11, Ubuntu 22.04, macOS 13
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+      placeholder: Describe the issue you're experiencing...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. Connect MeshCore device to USB port
+        2. Run discovery with `MeshCodeClient.DiscoverDevicesAsync()`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: A clear and concise description of what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Code Sample
+      description: If applicable, add code that reproduces the issue
+      render: csharp
+      placeholder: |
+        using MeshCore.Net.SDK;
+        
+        // Your code here...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs/Stack Trace
+      description: If applicable, add any error messages or stack traces
+      render: text
+
+  - type: input
+    id: device
+    attributes:
+      label: MeshCore Device
+      description: What MeshCore device are you using?
+      placeholder: e.g., MeshCore Radio v1.2, Custom device
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here (screenshots, etc.)
