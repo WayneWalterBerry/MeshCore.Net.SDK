@@ -1,4 +1,8 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using MeshCore.Net.SDK.Demo.Demos;
+using MeshCore.Net.SDK.Demo.Logging;
 using MeshCore.Net.SDK.Transport;
 
 namespace MeshCore.Net.SDK.Demo;
@@ -7,46 +11,120 @@ class Program
 {
     static async Task Main(string[] args)
     {
-        Console.WriteLine("MeshCore.Net.SDK Demo Application");
-        Console.WriteLine("====================================");
-        Console.WriteLine();
-
         var config = ParseArguments(args);
-        DisplayConfiguration(config);
+        
+        // Build the host with dependency injection and logging
+        var host = CreateHostBuilder(args, config).Build();
+        
+        // Get the logger factory and ETW listener from DI
+        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
+        var logger = host.Services.GetRequiredService<ILogger<Program>>();
+        var etwListener = host.Services.GetRequiredService<MeshCoreSdkEventListener>();
+
+        logger.LogInformation("MeshCore.Net.SDK Demo Application Started");
+        logger.LogInformation("====================================");
+
+        DisplayConfiguration(config, logger);
 
         try
         {
             if (config.IsAdvanced)
             {
-                Console.WriteLine("Running Advanced Demo...");
-                await AdvancedDemo.RunAsync(config.PreferredTransport);
+                logger.LogInformation("Running Advanced Demo...");
+                await AdvancedDemo.RunAsync(config.PreferredTransport, loggerFactory);
             }
             else
             {
-                Console.WriteLine("Running Basic Demo...");
-                await BasicDemo.RunAsync(config.PreferredTransport);
+                logger.LogInformation("Running Basic Demo...");
+                await BasicDemo.RunAsync(config.PreferredTransport, loggerFactory);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Fatal Error: {ex.Message}");
+            logger.LogError(ex, "Fatal Error occurred during demo execution");
             if (ex.InnerException != null)
             {
-                Console.WriteLine($"   Inner Exception: {ex.InnerException.Message}");
+                logger.LogError(ex.InnerException, "Inner Exception details");
             }
         }
 
-        Console.WriteLine();
         if (config.NoWait)
         {
-            Console.WriteLine("Demo completed.");
+            logger.LogInformation("Demo completed.");
         }
         else
         {
-            Console.WriteLine("Demo completed. Press any key to exit...");
+            logger.LogInformation("Demo completed. Press any key to exit...");
             Console.ReadKey();
         }
+
+        // Dispose of the ETW listener
+        etwListener.Dispose();
+        
+        await host.StopAsync();
     }
+
+    private static IHostBuilder CreateHostBuilder(string[] args, DemoConfiguration config) =>
+        Host.CreateDefaultBuilder(args)
+            .ConfigureLogging((context, logging) =>
+            {
+                // Clear default providers and add what we want
+                logging.ClearProviders();
+                
+                // Add console logging with custom formatting
+                logging.AddConsole(options =>
+                {
+                    options.FormatterName = "simple";
+                });
+                
+                // Add Event Log logging on Windows
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        logging.AddEventLog(options =>
+                        {
+                            options.SourceName = "MeshCore.Net.SDK.Demo";
+                            options.LogName = "Application";
+                        });
+                    }
+                    catch
+                    {
+                        // Event Log might not be available in all scenarios
+                    }
+                }
+                
+                // Set minimum log levels based on verbose mode
+                if (config.Verbose)
+                {
+                    logging.SetMinimumLevel(LogLevel.Trace);
+                }
+                else
+                {
+                    logging.SetMinimumLevel(LogLevel.Debug);
+                }
+                
+                // Configure log levels for different categories
+                logging.AddFilter("Microsoft", LogLevel.Warning);
+                logging.AddFilter("System", LogLevel.Warning);
+                
+                // Enable detailed logging for MeshCore SDK when verbose mode is enabled
+                if (config.Verbose)
+                {
+                    logging.AddFilter("MeshCore.Net.SDK", LogLevel.Debug);
+                    logging.AddFilter("MeshCore.Net.SDK.Demo", LogLevel.Debug);
+                }
+                else
+                {
+                    logging.AddFilter("MeshCore.Net.SDK", LogLevel.Information);
+                    logging.AddFilter("MeshCore.Net.SDK.Demo", LogLevel.Information);
+                }
+            })
+            .ConfigureServices((context, services) =>
+            {
+                // Register the ETW event listener as a singleton
+                services.AddSingleton<MeshCoreSdkEventListener>();
+            });
 
     private static DemoConfiguration ParseArguments(string[] args)
     {
@@ -71,6 +149,10 @@ class Program
                 case "--no-wait":
                     config.NoWait = true;
                     break;
+                case "--verbose":
+                case "-v":
+                    config.Verbose = true;
+                    break;
                 case "--help":
                 case "-h":
                     ShowHelp();
@@ -89,26 +171,29 @@ class Program
         return config;
     }
 
-    private static void DisplayConfiguration(DemoConfiguration config)
+    private static void DisplayConfiguration(DemoConfiguration config, ILogger logger)
     {
-        Console.WriteLine("Demo Configuration:");
-        Console.WriteLine($"   Mode: {(config.IsAdvanced ? "Advanced" : "Basic")}");
+        logger.LogInformation("Demo Configuration:");
+        logger.LogInformation("   Mode: {Mode}", config.IsAdvanced ? "Advanced" : "Basic");
         
         if (config.TransportSpecified)
         {
-            Console.WriteLine($"   Preferred Transport: {config.PreferredTransport}");
+            logger.LogInformation("   Preferred Transport: {Transport}", config.PreferredTransport);
         }
         else
         {
-            Console.WriteLine($"   Transport: Auto-detect (USB preferred)");
+            logger.LogInformation("   Transport: Auto-detect (USB preferred)");
         }
 
         if (config.NoWait)
         {
-            Console.WriteLine($"   Exit behavior: Auto-exit (no wait)");
+            logger.LogInformation("   Exit behavior: Auto-exit (no wait)");
         }
         
-        Console.WriteLine();
+        if (config.Verbose)
+        {
+            logger.LogInformation("   Logging: Verbose mode enabled");
+        }
     }
 
     private static void ShowHelp()
@@ -124,14 +209,15 @@ class Program
         Console.WriteLine("  --usb               Prefer USB transport (default)");
         Console.WriteLine("  --bluetooth, --ble  Prefer Bluetooth LE transport");
         Console.WriteLine("  --no-wait           Exit immediately without waiting for keypress");
+        Console.WriteLine("  --verbose, -v       Enable verbose logging output");
         Console.WriteLine("  --help, -h          Show this help message");
         Console.WriteLine();
         Console.WriteLine("EXAMPLES:");
         Console.WriteLine("  # Basic demo with auto-detected transport");
         Console.WriteLine("  MeshCore.Net.SDK.Demo");
         Console.WriteLine();
-        Console.WriteLine("  # Advanced demo with USB transport");
-        Console.WriteLine("  MeshCore.Net.SDK.Demo --advanced --usb");
+        Console.WriteLine("  # Advanced demo with USB transport and verbose logging");
+        Console.WriteLine("  MeshCore.Net.SDK.Demo --advanced --usb --verbose");
         Console.WriteLine();
         Console.WriteLine("  # Basic demo specifically for Bluetooth LE");
         Console.WriteLine("  MeshCore.Net.SDK.Demo --bluetooth");
@@ -147,6 +233,19 @@ class Program
         Console.WriteLine("  Bluetooth LE:   Planned for v2.0");
         Console.WriteLine("  WiFi TCP:       Future consideration");
         Console.WriteLine();
+        Console.WriteLine("LOGGING:");
+        Console.WriteLine("  The demo includes ETW (Event Tracing for Windows) support.");
+        Console.WriteLine("  ETW events from the SDK are captured and displayed in the console.");
+        Console.WriteLine("  Use --verbose for detailed logging information.");
+        Console.WriteLine("  On Windows, events are also written to the Event Log.");
+        Console.WriteLine();
+        Console.WriteLine("ETW MONITORING:");
+        Console.WriteLine("  You can monitor ETW events externally using tools like:");
+        Console.WriteLine("  - Windows Performance Toolkit (WPA)");
+        Console.WriteLine("  - PerfView");
+        Console.WriteLine("  - Custom ETW consumers");
+        Console.WriteLine("  Event Source Name: 'MeshCore-Net-SDK'");
+        Console.WriteLine();
         Console.WriteLine("NOTE:");
         Console.WriteLine("  If no transport is specified, the demo will auto-detect");
         Console.WriteLine("  available devices and prefer USB connections.");
@@ -161,5 +260,6 @@ class Program
         public DeviceConnectionType PreferredTransport { get; set; } = DeviceConnectionType.USB;
         public bool TransportSpecified { get; set; } = false;
         public bool NoWait { get; set; } = false;
+        public bool Verbose { get; set; } = false;
     }
 }

@@ -9,6 +9,9 @@ This document outlines the coding standards, conventions, and best practices for
 - **Maintainability**: Prefer simple, clear solutions over complex ones
 - **Performance**: Consider performance implications, especially for serial communication
 - **Error Handling**: Provide meaningful error messages and proper exception handling
+- **Silent by Default**: Libraries should not produce output unless explicitly configured
+- **Abstraction-Based**: Use `ILogger`/`ILoggerFactory` abstractions, never concrete implementations
+- **Optional Logging**: Always provide no-op defaults when loggers are not supplied
 
 ## ?? Code Style
 
@@ -103,19 +106,22 @@ public async Task<ReturnType> MethodName(ParameterType paramName)
 ### Console Output Guidelines
 
 #### SDK Libraries
-- **Avoid emoji icons** in console output for SDK libraries
-- Use clean, professional text-based indicators
-- Keep console output minimal and informative
-- Consider using proper logging frameworks instead of `Console.WriteLine`
+- **Never use `Console.WriteLine`** in library code
+- **Never write to fixed file paths** from libraries
+- **Never hijack application output streams**
+- All output must go through provided `ILogger` abstractions
+- Applications control where and how logs are written
+- Use clean, professional text-based indicators when logging
+- Keep log output minimal and informative
 
-#### Examples of Professional Console Output
+#### Examples of Professional Log Output
 ```csharp
-// ? Good: Clean, professional output
-Console.WriteLine("Testing port COM3...");
-Console.WriteLine("  Connection timeout for COM3");
-Console.WriteLine("  Error for COM3: UnauthorizedAccess - Access denied");
+// ? Good: Clean, professional logging
+_logger.LogInformation("Testing port {Port}", portName);
+_logger.LogWarning("Connection timeout for {Port}", portName);
+_logger.LogError("Error for {Port}: {ErrorType} - {ErrorMessage}", portName, "UnauthorizedAccess", "Access denied");
 
-// ? Avoid: Emoji icons in SDK libraries
+// ? Avoid: Console output or emoji icons in SDK libraries
 Console.WriteLine("?? Testing port COM3...");
 Console.WriteLine("  ? Connection timeout for COM3");
 Console.WriteLine("  ?? Error for COM3: UnauthorizedAccess - Access denied");
@@ -195,6 +201,63 @@ using (var transport = new UsbTransport(portName))
 
 ## ?? Technology-Specific Guidelines
 
+### Library Logging Best Practices
+
+#### Dependency Injection Pattern
+- Accept `ILoggerFactory?` for multi-class SDKs
+- Accept `ILogger<T>?` for single-class components
+- Use `NullLogger` and `NullLoggerFactory` as defaults
+
+```csharp
+// ? Good: Optional logger with no-op default
+public MeshCodeClient(ILoggerFactory? loggerFactory = null)
+{
+    _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
+    _logger = _loggerFactory.CreateLogger<MeshCodeClient>();
+}
+```
+
+#### High-Performance Logging
+- Use source-generated logging with `LoggerMessage` attribute for performance-critical paths
+- Avoid string interpolation in log messages
+- Use structured logging with message templates
+- Check log level before expensive operations: `if (_logger.IsEnabled(LogLevel.Debug))`
+
+```csharp
+// ? Good: Source-generated high-performance logging
+[LoggerMessage(EventId = 1001, Level = LogLevel.Information, 
+    Message = "Device discovery started for transport: {TransportType}")]
+public static partial void LogDeviceDiscoveryStarted(this ILogger logger, string transportType);
+```
+
+#### ETW (Event Tracing for Windows) Integration
+- Provide dual logging: both `ILogger` and ETW for comprehensive observability
+- Use consistent event IDs and structured data across both systems
+- ETW events should complement, not replace, `ILogger` functionality
+- Enable external monitoring tools to consume ETW events independently
+
+```csharp
+// ? Good: Dual logging approach
+_logger.LogDeviceConnectionStarted(deviceId, transportType);
+MeshCoreSdkEventSource.Log.DeviceConnectionStarted(deviceId, transportType);
+```
+
+#### Logging Performance
+- Use message templates, not string concatenation
+- Avoid boxing in hot logging paths
+- Prefer source-generated logging for frequently called methods
+- Use structured logging with named parameters
+
+```csharp
+// ? Good: Structured logging with templates
+_logger.LogInformation("Device {DeviceId} connected via {Transport} in {Duration}ms", 
+    deviceId, transport, duration);
+
+// ? Avoid: String interpolation or concatenation
+_logger.LogInformation($"Device {deviceId} connected via {transport} in {duration}ms");
+_logger.LogInformation("Device " + deviceId + " connected via " + transport);
+```
+
 ### Serial Communication
 - Always check `IsConnected` before operations
 - Use proper timeouts for all serial operations
@@ -234,6 +297,7 @@ MeshCore.Net.SDK/
 ??? Transport/          # Communication layer implementations  
 ??? Exceptions/         # Custom exception types
 ??? Models/            # Data models and DTOs
+??? Logging/           # Logging infrastructure (ILogger + ETW)
 ??? Examples/          # Usage examples and documentation
 ```
 
@@ -252,13 +316,17 @@ MeshCore.Net.SDK/
 - [ ] Async patterns are used correctly
 - [ ] Tests cover new functionality
 - [ ] No hardcoded values (use constants/configuration)
-- [ ] Console output is professional (no emoji icons)
+- [ ] No console output or emoji icons in library code
+- [ ] Logging uses ILogger abstractions with no-op defaults
+- [ ] ETW events complement ILogger calls where appropriate
 
 ### Performance Considerations
 - [ ] Minimize allocations in hot paths
 - [ ] Use appropriate collection types
 - [ ] Consider buffer reuse for serial communication
 - [ ] Avoid blocking operations in async methods
+- [ ] Use source-generated logging for performance-critical paths
+- [ ] Check log levels before expensive logging operations
 
 ## ?? Common Anti-Patterns to Avoid
 
@@ -284,6 +352,18 @@ catch
 var result = SomeAsyncMethod().Result;
 ```
 
+### Logging Anti-Patterns
+```csharp
+// ? Avoid: Direct console output in libraries
+Console.WriteLine("Device connected");
+
+// ? Avoid: String interpolation in logging
+_logger.LogInformation($"Connected to {device}");
+
+// ? Avoid: Forcing specific logging implementations
+var logger = new ConsoleLogger(); // Forces console output
+```
+
 ### Serial Communication
 ```csharp
 // ? Avoid: Not checking connection state
@@ -301,6 +381,8 @@ while (true)
 - [Microsoft C# Coding Conventions](https://docs.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions)
 - [.NET Framework Design Guidelines](https://docs.microsoft.com/en-us/dotnet/standard/design-guidelines/)
 - [Async/Await Best Practices](https://docs.microsoft.com/en-us/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)
+- [High-performance logging in .NET](https://docs.microsoft.com/en-us/dotnet/core/extensions/high-performance-logging)
+- [Logging library authors guidance](https://docs.microsoft.com/en-us/dotnet/core/extensions/logging-library-authors)
 
 ---
 

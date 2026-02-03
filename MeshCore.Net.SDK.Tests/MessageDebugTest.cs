@@ -6,6 +6,7 @@ namespace MeshCore.Net.SDK.Tests;
 /// <summary>
 /// Debug test specifically for message retrieval issues
 /// </summary>
+[Collection("SequentialTests")]
 public class MessageDebugTest
 {
     [Fact]

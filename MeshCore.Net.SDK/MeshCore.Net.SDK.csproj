@@ -2,42 +2,37 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     
-    <!-- Package Information -->
+    <!-- Package Metadata -->
     <PackageId>MeshCore.Net.SDK</PackageId>
-    <Title>MeshCore.Net.SDK</Title>
+    <PackageVersion>1.0.0</PackageVersion>
     <Authors>Wayne Walter Berry</Authors>
-    <Company>MeshCore Community</Company>
-    <Product>MeshCore.Net.SDK</Product>
-    <Description>A comprehensive C# SDK for communicating with MeshCore devices via USB serial protocol. Bluetooth LE support planned for future releases. Provides async/await support, real-time events, and cross-platform compatibility.</Description>
-    <PackageTags>meshcore;mesh;radio;usb;serial;iot;communication;sdk;dotnet</PackageTags>
+    <Description>A comprehensive C# SDK for communicating with MeshCore devices via USB serial protocol.</Description>
     <PackageProjectUrl>https://github.com/WayneWalterBerry/MeshCore.Net.SDK</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/WayneWalterBerry/MeshCore.Net.SDK.git</RepositoryUrl>
+    <RepositoryUrl>https://github.com/WayneWalterBerry/MeshCore.Net.SDK</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <PackageTags>meshcore;mesh;network;iot;serial;usb;radio</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <PackageReleaseNotes>Complete C# SDK for MeshCore devices with USB protocol support, async operations, and real-time events. Bluetooth LE support coming in future releases.</PackageReleaseNotes>
-    <Copyright>Copyright (c) 2024 Wayne Walter Berry</Copyright>
-    
-    <!-- Build Properties -->
-    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    
+    <!-- XML Documentation -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+    <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="8.0.0" />
+    <PackageReference Include="System.Diagnostics.Tracing" Version="4.3.0" />
   </ItemGroup>
 
-  <!-- Package Icon -->
   <ItemGroup>
-    <None Include="..\README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Examples\" />
+    <None Include="../README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

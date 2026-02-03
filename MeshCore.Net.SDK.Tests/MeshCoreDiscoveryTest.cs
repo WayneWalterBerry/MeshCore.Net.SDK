@@ -6,6 +6,7 @@ namespace MeshCore.Net.SDK.Tests;
 /// <summary>
 /// Test the updated discovery process with proper MeshCore protocol handshake
 /// </summary>
+[Collection("SequentialTests")]
 public class MeshCoreDiscoveryTest
 {
     [Fact]
