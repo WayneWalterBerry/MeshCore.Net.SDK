@@ -99,16 +99,39 @@ public class MeshCoreFrame
     }
     
     /// <summary>
-    /// Gets the status from the payload (second byte for responses)
+    /// Gets the response code from the payload (first byte for outbound frames)
+    /// </summary>
+    public MeshCoreResponseCode? GetResponseCode()
+    {
+        if (Payload.Length == 0)
+            return null;
+            
+        if (Enum.IsDefined(typeof(MeshCoreResponseCode), Payload[0]))
+            return (MeshCoreResponseCode)Payload[0];
+            
+        return null;
+    }
+    
+    /// <summary>
+    /// Gets the status from the payload (second byte for error responses)
     /// </summary>
     public MeshCoreStatus? GetStatus()
     {
-        if (Payload.Length < 2)
-            return null;
-            
-        if (Enum.IsDefined(typeof(MeshCoreStatus), Payload[1]))
-            return (MeshCoreStatus)Payload[1];
-            
+        // For outbound frames, check the response code
+        if (IsOutbound && Payload.Length >= 1)
+        {
+            var responseCode = GetResponseCode();
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR && Payload.Length >= 2)
+            {
+                if (Enum.IsDefined(typeof(MeshCoreStatus), Payload[1]))
+                    return (MeshCoreStatus)Payload[1];
+            }
+            else if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
+            {
+                return MeshCoreStatus.Success;
+            }
+        }
+        
         return null;
     }
     
@@ -128,7 +151,8 @@ public class MeshCoreFrame
     public override string ToString()
     {
         var direction = IsInbound ? "?" : "?";
-        var command = GetCommand()?.ToString() ?? "Unknown";
+        var responseCode = GetResponseCode()?.ToString() ?? "Unknown";
+        var command = GetCommand()?.ToString() ?? responseCode;
         var status = GetStatus()?.ToString() ?? "N/A";
         return $"{direction} {command} ({Payload.Length} bytes) Status: {status}";
     }

@@ -1,4 +1,4 @@
-using System.IO.Ports;
+﻿using System.IO.Ports;
 using MeshCore.Net.SDK.Protocol;
 using MeshCore.Net.SDK.Exceptions;
 
@@ -7,7 +7,7 @@ namespace MeshCore.Net.SDK.Transport;
 /// <summary>
 /// Handles low-level USB serial communication with MeshCore devices
 /// </summary>
-public class UsbTransport : IDisposable
+public class UsbTransport : ITransport
 {
     private readonly SerialPort _serialPort;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
@@ -18,7 +18,7 @@ public class UsbTransport : IDisposable
     public event EventHandler<Exception>? ErrorOccurred;
 
     public bool IsConnected => _serialPort?.IsOpen == true;
-    public string? PortName => _serialPort?.PortName;
+    public string? ConnectionId => _serialPort?.PortName;
 
     public UsbTransport(string portName, int baudRate = 115200)
     {
@@ -50,7 +50,7 @@ public class UsbTransport : IDisposable
         }
         catch (Exception ex)
         {
-            throw new DeviceConnectionException(PortName, ex);
+            throw new DeviceConnectionException(ConnectionId, ex);
         }
     }
 
@@ -73,7 +73,8 @@ public class UsbTransport : IDisposable
     /// <summary>
     /// Sends a frame to the MeshCore device
     /// </summary>
-    public async Task SendFrameAsync(MeshCoreFrame frame)
+    public async Task SendFrameAsync(MeshCoreFrame frame
+)
     {
         if (!IsConnected)
             throw new InvalidOperationException("Transport is not connected");
@@ -95,7 +96,7 @@ public class UsbTransport : IDisposable
     /// <summary>
     /// Sends a command and waits for a response
     /// </summary>
-    public async Task<MeshCoreFrame> SendCommandAsync(MeshCoreCommand command, byte[] data = null, 
+    public async Task<MeshCoreFrame> SendCommandAsync(MeshCoreCommand command, byte[]? data = null, 
         TimeSpan? timeout = null)
     {
         data ??= Array.Empty<byte>();
@@ -125,7 +126,9 @@ public class UsbTransport : IDisposable
 
         void OnFrameReceived(object? sender, MeshCoreFrame frame)
         {
-            if (frame.IsOutbound && frame.GetCommand() == expectedCommand)
+            // Accept any outbound frame as a response - the device may respond with a different command
+            // or status frame rather than echoing the original command
+            if (frame.IsOutbound)
             {
                 timer.Dispose();
                 FrameReceived -= OnFrameReceived;
@@ -260,33 +263,79 @@ public class UsbTransport : IDisposable
     /// <summary>
     /// Discovers available MeshCore devices on serial ports
     /// </summary>
-    public static async Task<List<string>> DiscoverDevicesAsync()
+    public static async Task<List<MeshCoreDevice>> DiscoverDevicesAsync()
     {
-        var devices = new List<string>();
+        var devices = new List<MeshCoreDevice>();
         var portNames = SerialPort.GetPortNames();
 
         foreach (var portName in portNames)
         {
+            Console.WriteLine($"Testing port {portName}...");
+            
             try
             {
                 using var transport = new UsbTransport(portName);
-                await transport.ConnectAsync();
                 
-                // Try to send a device query command
-                var response = await transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, 
-                    timeout: TimeSpan.FromMilliseconds(2000));
-                
-                if (response.GetStatus() == MeshCoreStatus.Success)
+                // Try to connect with timeout
+                var connectTask = transport.ConnectAsync();
+                if (await Task.WhenAny(connectTask, Task.Delay(1000)) != connectTask)
                 {
-                    devices.Add(portName);
+                    Console.WriteLine($"  Connection timeout for {portName}");
+                    continue;
+                }
+                
+                await connectTask; // This will throw if connection failed
+                Console.WriteLine($"  Connected to {portName}");
+                
+                // According to research, try CMD_APP_START first for older firmware compatibility
+                var appStartResponse = await transport.SendCommandAsync(
+                    MeshCoreCommand.CMD_APP_START, 
+                    new byte[] { 0x08 }, // Protocol version 8
+                    timeout: TimeSpan.FromMilliseconds(3000));
+                
+                // Now try device query
+                var deviceQueryResponse = await transport.SendCommandAsync(
+                    MeshCoreCommand.CMD_DEVICE_QUERY, 
+                    new byte[] { 0x08 }, // Protocol version 8
+                    timeout: TimeSpan.FromMilliseconds(3000));
+                
+                // Check if we got a valid device info response (RESP_CODE_DEVICE_INFO = 0x0D)
+                if (deviceQueryResponse.Payload?.Length > 0 && deviceQueryResponse.Payload[0] == 0x0D)
+                {
+                    Console.WriteLine($"  {portName} is a MeshCore device!");
+                    devices.Add(new MeshCoreDevice
+                    {
+                        Id = portName,
+                        Name = $"MeshCore USB Device ({portName})",
+                        ConnectionType = DeviceConnectionType.USB,
+                        Address = portName,
+                        IsPaired = true
+                    });
+                }
+                else
+                {
+                    Console.WriteLine($"  {portName} responded but not with device info");
                 }
             }
-            catch
+            catch (DeviceConnectionException ex)
             {
-                // This port doesn't have a MeshCore device or isn't accessible
+                Console.WriteLine($"  Connection error for {portName}: {ex.Message}");
+            }
+            catch (MeshCoreTimeoutException ex)
+            {
+                Console.WriteLine($"  Timeout for {portName}: {ex.Message}");
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Console.WriteLine($"  Access denied for {portName}: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  Error for {portName}: {ex.GetType().Name} - {ex.Message}");
             }
         }
 
+        Console.WriteLine($"Discovery complete. Found {devices.Count} MeshCore devices.");
         return devices;
     }
 

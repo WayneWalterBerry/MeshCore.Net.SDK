@@ -11,14 +11,14 @@
     <Authors>Wayne Walter Berry</Authors>
     <Company>MeshCore Community</Company>
     <Product>MeshCore.Net.SDK</Product>
-    <Description>A comprehensive C# SDK for communicating with MeshCore devices via USB serial protocol. Provides async/await support, real-time events, and cross-platform compatibility.</Description>
+    <Description>A comprehensive C# SDK for communicating with MeshCore devices via USB serial protocol. Bluetooth LE support planned for future releases. Provides async/await support, real-time events, and cross-platform compatibility.</Description>
     <PackageTags>meshcore;mesh;radio;usb;serial;iot;communication;sdk;dotnet</PackageTags>
     <PackageProjectUrl>https://github.com/WayneWalterBerry/MeshCore.Net.SDK</PackageProjectUrl>
     <RepositoryUrl>https://github.com/WayneWalterBerry/MeshCore.Net.SDK.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
-    <PackageReleaseNotes>Complete C# SDK for MeshCore devices with USB protocol support, async operations, and real-time events.</PackageReleaseNotes>
+    <PackageReleaseNotes>Complete C# SDK for MeshCore devices with USB protocol support, async operations, and real-time events. Bluetooth LE support coming in future releases.</PackageReleaseNotes>
     <Copyright>Copyright (c) 2024 Wayne Walter Berry</Copyright>
     
     <!-- Build Properties -->
@@ -35,6 +35,9 @@
   <!-- Package Icon -->
   <ItemGroup>
     <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Examples\" />
   </ItemGroup>
 
 </Project>

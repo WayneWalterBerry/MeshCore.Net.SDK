@@ -109,8 +109,22 @@ public class MeshCoreFrameTests
     [Fact]
     public void GetStatus_ShouldReturnCorrectStatus()
     {
-        // Arrange
-        var payload = new byte[] { (byte)MeshCoreCommand.CMD_DEVICE_QUERY, (byte)MeshCoreStatus.Success };
+        // Arrange - Create an error response frame
+        var payload = new byte[] { (byte)MeshCoreResponseCode.RESP_CODE_ERR, (byte)MeshCoreStatus.InvalidCommand };
+        var frame = MeshCoreFrame.CreateOutbound(payload);
+        
+        // Act
+        var status = frame.GetStatus();
+        
+        // Assert
+        Assert.Equal(MeshCoreStatus.InvalidCommand, status);
+    }
+    
+    [Fact]
+    public void GetStatus_ShouldReturnSuccess_ForOkResponse()
+    {
+        // Arrange - Create an OK response frame
+        var payload = new byte[] { (byte)MeshCoreResponseCode.RESP_CODE_OK };
         var frame = MeshCoreFrame.CreateOutbound(payload);
         
         // Act
@@ -143,10 +157,10 @@ public class MeshCoreCommandTests
     [Fact]
     public void CommandEnums_ShouldHaveCorrectValues()
     {
-        Assert.Equal(22, (byte)MeshCoreCommand.CMD_DEVICE_QUERY);
-        Assert.Equal(23, (byte)MeshCoreCommand.CMD_GET_DEVICE_INFO);
-        Assert.Equal(30, (byte)MeshCoreCommand.CMD_GET_CONTACTS);
-        Assert.Equal(40, (byte)MeshCoreCommand.CMD_SEND_MESSAGE);
+        // Test command values match research specifications  
+        Assert.Equal(0x16, (byte)MeshCoreCommand.CMD_DEVICE_QUERY);
+        Assert.Equal(0x01, (byte)MeshCoreCommand.CMD_APP_START);
+        Assert.Equal(0x02, (byte)MeshCoreCommand.CMD_SEND_TXT_MSG);
     }
     
     [Fact]
