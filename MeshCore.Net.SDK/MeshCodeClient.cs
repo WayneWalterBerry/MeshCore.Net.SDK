@@ -18,7 +18,7 @@ public class MeshCodeClient : IDisposable
     /// <summary>
     /// Maximum number of channels supported by the MeshCore device
     /// </summary>
-    public const int MaxChannelsSupported = 40; 
+    public const int MaxChannelsSupported = 40;
 
     private readonly ITransport _transport;
     private readonly ILogger<MeshCodeClient> _logger;
@@ -359,7 +359,7 @@ public class MeshCodeClient : IDisposable
                 // Parse the first contact from the initial response
                 try
                 {
-                    var firstContact = ParseSingleContact(response.Payload);
+                    var firstContact = DeserializeContact(response.Payload);
                     contacts.Add(firstContact);
                     _logger.LogDebug("Parsed first contact: {ContactName} ({ContactId})", firstContact.Name, firstContact.Id);
                 }
@@ -1064,7 +1064,7 @@ public class MeshCodeClient : IDisposable
         {
             if (channelConfiguration.Name.ToLowerInvariant() == targetChannelName)
             {
-                _logger.LogInformation("Found channel '{ChannelName}' at Index {ChannelIndex} on device {DeviceId}", 
+                _logger.LogInformation("Found channel '{ChannelName}' at Index {ChannelIndex} on device {DeviceId}",
                     channelName, channelConfiguration.Index, deviceId);
 
                 return channelConfiguration;
@@ -1110,7 +1110,7 @@ public class MeshCodeClient : IDisposable
                     if (response.Payload.Length > 1)
                     {
                         Channel channel;
-                        if (TryParseChannel(response.Payload, out channel))
+                        if (TryDeserializeChannel(response.Payload, out channel))
                         {
                             result.Add(channel);
 
@@ -1231,36 +1231,116 @@ public class MeshCodeClient : IDisposable
 
     #endregion
 
+    #region Messaging
+
+    /// <summary>
+    /// Enhanced message parsing that handles both contact and channel messages properly
+    /// Based on the message format analysis from MyMesh.cpp
+    /// </summary>
+    private static Message ParseContactMessage(byte[] data, MeshCoreResponseCode responseCode)
+    {
+        if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV_V3)
+        {
+            return MessageV3Serialization.Instance.Deserialize(data);
+        }
+
+        return MessageLegacySerialization.Instance.Deserialize(data);
+    }
+
+    #endregion
+
     #region Configuration Operations
 
     /// <summary>
-    /// Gets device configuration
+    /// Gets battery and storage information from the MeshCore device
     /// </summary>
-    public async Task<DeviceConfiguration> GetConfigurationAsync()
+    /// <returns>Battery and storage information including voltage, used storage, and total storage</returns>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error or unexpected response</exception>
+    public async Task<BatteryAndStorage> GetBatteryAndStorageAsync()
     {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        var operationName = nameof(GetBatteryAndStorageAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
         try
         {
+            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, deviceId);
+            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, deviceId);
+
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_BATT_AND_STORAGE);
 
-            if (response.GetResponseCode() == MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE)
+            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, response.Payload.FirstOrDefault(), deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, response.Payload.FirstOrDefault(), deviceId);
+
+            var responseCode = response.GetResponseCode();
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE)
             {
-                return ParseConfiguration(response.Payload);
+                try
+                {
+                    var batteryAndStorage = BatteryAndStorageSerialization.Instance.Deserialize(response.Payload);
+
+                    var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    _logger.LogDebug("Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. Battery: {BatteryVoltage}mV, Storage: {UsedStorage}/{TotalStorage}KB",
+                        operationName, deviceId, (long)duration, batteryAndStorage.BatteryVoltage, batteryAndStorage.UsedStorage, batteryAndStorage.TotalStorage);
+                    MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+                    return batteryAndStorage;
+                }
+                catch (Exception parseEx)
+                {
+                    var errorMessage = $"Failed to parse battery and storage data from device response. Response length: {response.Payload.Length} bytes. Parse error: {parseEx.Message}";
+                    var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
+
+                    _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
+                    MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
+
+                    throw ex;
+                }
+            }
+            else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var errorMessage = status switch
+                {
+                    MeshCoreStatus.InvalidCommand => "Battery and storage command not supported by this device firmware",
+                    MeshCoreStatus.DeviceError => "Device is in an error state and cannot provide battery/storage information",
+                    MeshCoreStatus.NetworkError => "Network error occurred while retrieving battery/storage information",
+                    MeshCoreStatus.TimeoutError => "Timeout occurred while retrieving battery/storage information",
+                    MeshCoreStatus.InvalidParameter => "Invalid parameters for battery/storage command",
+                    MeshCoreStatus.UnknownError => "Unknown error occurred while retrieving battery/storage information",
+                    _ => $"Failed to get battery and storage information (status: 0x{statusByte:X2})"
+                };
+
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, errorMessage);
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, ex.Message);
+
+                throw ex;
+            }
+            else
+            {
+                // Unexpected response code
+                var errorMessage = $"Unexpected response code {responseCode} for battery and storage request. Expected RESP_CODE_BATT_AND_STORAGE ({(byte)MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE:X2}).";
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
+
+                throw ex;
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!(ex is ProtocolException))
         {
-            _logger.LogWarning(ex, "Failed to get battery/storage info, using default configuration");
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
         }
-
-        return new DeviceConfiguration
-        {
-            DeviceName = "MeshCore Device (Default)",
-            TransmitPower = 100,
-            Channel = 1,
-            AutoRelay = false,
-            HeartbeatInterval = TimeSpan.FromSeconds(30),
-            MessageTimeout = TimeSpan.FromMinutes(5)
-        };
     }
 
     /// <summary>
@@ -1386,7 +1466,7 @@ public class MeshCodeClient : IDisposable
                 {
                     try
                     {
-                        var contact = ParseSingleContact(nextResponse.Payload);
+                        var contact = DeserializeContact(nextResponse.Payload);
                         contacts.Add(contact);
                         contactCount++;
                         consecutiveErrors = 0;
@@ -1491,7 +1571,7 @@ public class MeshCodeClient : IDisposable
                 {
                     try
                     {
-                        var contact = ParseSingleContact(nextResponse.Payload);
+                        var contact = DeserializeContact(nextResponse.Payload);
                         contacts.Add(contact);
                         contactCount++;
                         consecutiveErrors = 0;
@@ -1608,94 +1688,12 @@ public class MeshCodeClient : IDisposable
         }
     }
 
-    private static Contact ParseSingleContact(byte[] data)
+    private static Contact DeserializeContact(byte[] data)
     {
-        try
-        {
-            var payloadStart = 0;
-            if (data.Length > 0 && data[0] == (byte)MeshCoreResponseCode.RESP_CODE_CONTACT)
-            {
-                payloadStart = 1;
-            }
-
-            if (data.Length <= payloadStart)
-            {
-                throw new Exception("Contact data too short");
-            }
-
-            var contactData = new byte[data.Length - payloadStart];
-            Array.Copy(data, payloadStart, contactData, 0, contactData.Length);
-
-            string contactName = "Unknown Contact";
-            string nodeId = "UNKNOWN";
-
-            if (contactData.Length >= 32)
-            {
-                var publicKey = new byte[32];
-                Array.Copy(contactData, 0, publicKey, 0, 32);
-                nodeId = Convert.ToHexString(publicKey).ToLowerInvariant();
-            }
-
-            // Simple name extraction
-            for (int startOffset = 32; startOffset < contactData.Length - 8; startOffset++)
-            {
-                if (contactData[startOffset] >= 32 && contactData[startOffset] <= 126)
-                {
-                    var nameBytes = new List<byte>();
-
-                    for (int i = startOffset; i < Math.Min(contactData.Length, startOffset + 64); i++)
-                    {
-                        if (contactData[i] == 0) break;
-                        else if (contactData[i] >= 32 && contactData[i] <= 126) nameBytes.Add(contactData[i]);
-                        else if (contactData[i] >= 0x80) nameBytes.Add(contactData[i]);
-                        else break;
-                    }
-
-                    if (nameBytes.Count >= 3)
-                    {
-                        try
-                        {
-                            var candidateName = Encoding.UTF8.GetString(nameBytes.ToArray()).Trim();
-                            if (!string.IsNullOrWhiteSpace(candidateName) && candidateName.Length >= 3)
-                            {
-                                var uniqueChars = candidateName.Distinct().Count();
-                                if (uniqueChars >= 2)
-                                {
-                                    contactName = candidateName;
-                                    break;
-                                }
-                            }
-                        }
-                        catch { }
-                    }
-                }
-            }
-
-            return new Contact
-            {
-                Id = nodeId,
-                Name = contactName,
-                NodeId = nodeId,
-                LastSeen = DateTime.UtcNow,
-                IsOnline = false,
-                Status = ContactStatus.Unknown
-            };
-        }
-        catch (Exception)
-        {
-            return new Contact
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = "Parse Error",
-                NodeId = "ERROR",
-                LastSeen = DateTime.UtcNow,
-                IsOnline = false,
-                Status = ContactStatus.Unknown
-            };
-        }
+        return ContactSerialization.Instance.Deserialize(data);
     }
 
-    private static Contact ParseContact(byte[] data) => ParseSingleContact(data);
+    private static Contact ParseContact(byte[] data) => DeserializeContact(data);
 
     private static Message ParseMessage(byte[] data) => ParseMessage(data, null);
 
@@ -1809,20 +1807,9 @@ public class MeshCodeClient : IDisposable
         };
     }
 
-    private static DeviceConfiguration ParseConfiguration(byte[] data)
+    private static DeviceConfiguration DeserializeDeviceConfiguration(byte[] data)
     {
-        var text = Encoding.UTF8.GetString(data);
-        var parts = text.Split('\0');
-
-        return new DeviceConfiguration
-        {
-            DeviceName = parts.Length > 0 ? parts[0] : null,
-            TransmitPower = parts.Length > 1 && int.TryParse(parts[1], out var power) ? power : 100,
-            Channel = parts.Length > 2 && int.TryParse(parts[2], out var channel) ? channel : 1,
-            AutoRelay = parts.Length > 3 && parts[3] == "1",
-            HeartbeatInterval = TimeSpan.FromSeconds(30),
-            MessageTimeout = TimeSpan.FromMinutes(5)
-        };
+        return DeviceSerialization.Instance.Deserialize(data);
     }
 
     private static byte[] SerializeConfiguration(DeviceConfiguration config)
@@ -1837,9 +1824,9 @@ public class MeshCodeClient : IDisposable
     /// <param name="data">The raw response data from the device</param>
     /// <param name="channel">When this method returns, contains the parsed channel configuration if successful; otherwise, null</param>
     /// <returns>True if parsing succeeded; otherwise, false</returns>
-    private static bool TryParseChannel(byte[] data, out Channel channel)
+    private static bool TryDeserializeChannel(byte[] data, out Channel channel)
     {
-        return ChannelDeserializer.Instance.TryDeserialize(data, out channel);
+        return ChannelSerialization.Instance.TryDeserialize(data, out channel);
     }
 
     /// <summary>
@@ -1849,32 +1836,7 @@ public class MeshCodeClient : IDisposable
     /// <returns>Serialized byte array</returns>
     private static byte[] SerializeChannel(Channel config)
     {
-        var parts = new List<string>();
-
-        // Channel ID should be first - if not provided, generate one for new channels
-        var channelId = config.Index.ToString();
-        parts.Add(channelId);
-
-        // Then add other properties
-        parts.Add(config.Name ?? "All");
-        parts.Add(config.Frequency.ToString());
-        parts.Add(config.IsEncrypted ? "1" : "0");
-
-        if (config.IsEncrypted && !string.IsNullOrWhiteSpace(config.EncryptionKey))
-        {
-            parts.Add(config.EncryptionKey);
-        }
-        else if (config.IsEncrypted)
-        {
-            // Generate a random key if encryption is enabled but no key provided
-            var random = new Random();
-            var key = new byte[32]; // 32 bytes for AES-256
-            random.NextBytes(key);
-            parts.Add(Convert.ToHexString(key));
-        }
-
-        var configString = string.Join("\0", parts);
-        return Encoding.UTF8.GetBytes(configString);
+        return ChannelSerialization.Instance.Serialize(config);
     }
 
     #endregion

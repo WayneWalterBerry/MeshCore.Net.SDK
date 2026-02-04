@@ -7,37 +7,41 @@ namespace MeshCore.Net.SDK.Serialization
     using System.Text;
     using MeshCore.Net.SDK.Models;
 
-    internal class ChannelDeserializer : IBinaryDeserializer<Channel>
+    internal class ChannelSerialization : 
+        IBinaryDeserializer<Channel>,
+        IBinarySerializer<Channel>
     {
-        private static readonly Lazy<ChannelDeserializer> _instance = new(() => new ChannelDeserializer());
+        private static readonly Lazy<ChannelSerialization> _instance = new(() => new ChannelSerialization());
 
         /// <summary>
         /// Gets the singleton instance of the ChannelDeserializer
         /// </summary>
-        public static ChannelDeserializer Instance => _instance.Value;
+        public static ChannelSerialization Instance => _instance.Value;
 
         /// <summary>
         /// Prevents external instantiation of the singleton
         /// </summary>
-        private ChannelDeserializer()
+        private ChannelSerialization()
         {
         }
 
         public Channel Deserialize(byte[] data)
         {
-            if (!this.TryDeserialize(data, out var result)) 
+            if (!this.TryDeserialize(data, out Channel? result)) 
             {
-                throw new InvalidOperationException("Failed to deserialize channel configuration from binary data");
+                throw new InvalidOperationException("Failed to deserialize channel from binary data");
             }
 
             return result;
         }
 
-        public bool TryDeserialize(byte[] data, out Channel result)
+        public bool TryDeserialize(byte[] data, out Channel? result)
         {
+            result = default(Channel);
+
             if (data.Length != 50)
             {
-                throw new ArgumentException($"Expected 50 bytes for binary channel configuration, got {data.Length} bytes");
+                return false;
             }
 
             result = new Channel();
@@ -90,6 +94,36 @@ namespace MeshCore.Net.SDK.Serialization
             result.Frequency = 433000000; // Default frequency
 
             return true;
+        }
+
+        public byte[] Serialize(Channel obj)
+        {
+            var parts = new List<string>();
+
+            // Channel ID should be first - if not provided, generate one for new channels
+            var channelId = obj.Index.ToString();
+            parts.Add(channelId);
+
+            // Then add other properties
+            parts.Add(obj.Name ?? "All");
+            parts.Add(obj.Frequency.ToString());
+            parts.Add(obj.IsEncrypted ? "1" : "0");
+
+            if (obj.IsEncrypted && !string.IsNullOrWhiteSpace(obj.EncryptionKey))
+            {
+                parts.Add(obj.EncryptionKey);
+            }
+            else if (obj.IsEncrypted)
+            {
+                // Generate a random key if encryption is enabled but no key provided
+                var random = new Random();
+                var key = new byte[32]; // 32 bytes for AES-256
+                random.NextBytes(key);
+                parts.Add(Convert.ToHexString(key));
+            }
+
+            var configString = string.Join("\0", parts);
+            return Encoding.UTF8.GetBytes(configString);
         }
     }
 }

@@ -196,7 +196,7 @@ public class AdvancedDemo
                 ConcurrentOperation("GetDeviceInfo", () => client.GetDeviceInfoAsync(), logger),
                 ConcurrentOperation("GetDeviceTime", () => client.GetDeviceTimeAsync(), logger),
                 ConcurrentOperation("GetNetworkStatus", () => client.GetNetworkStatusAsync(), logger),
-                ConcurrentOperation("GetConfiguration", () => client.GetConfigurationAsync(), logger)
+                ConcurrentOperation("GetConfiguration", () => client.GetBatteryAndStorageAsync(), logger)
             };
             
             var stopwatch = Stopwatch.StartNew();
@@ -273,7 +273,7 @@ public class AdvancedDemo
                 ["GetDeviceInfo"] = async () => await client.GetDeviceInfoAsync(),
                 ["GetDeviceTime"] = async () => await client.GetDeviceTimeAsync(),
                 ["GetNetworkStatus"] = async () => await client.GetNetworkStatusAsync(),
-                ["GetConfiguration"] = async () => await client.GetConfigurationAsync()
+                ["GetConfiguration"] = async () => await client.GetBatteryAndStorageAsync()
             };
             
             var performanceResults = new Dictionary<string, List<long>>();

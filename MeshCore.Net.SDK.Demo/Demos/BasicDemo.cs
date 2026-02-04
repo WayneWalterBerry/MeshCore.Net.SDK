@@ -156,16 +156,15 @@ public class BasicDemo
                 logger.LogInformation("  No contacts found");
             }
             logger.LogInformation("=== END CONTACT ANALYSIS ===");
-            
+
             // Get device configuration
-            var config = await client.GetConfigurationAsync();
-            logger.LogInformation("=== Device Configuration ===");
-            logger.LogInformation("Device Name: {DeviceName}", config.DeviceName ?? "Default");
-            logger.LogInformation("TX Power: {TransmitPower}%", config.TransmitPower);
-            logger.LogInformation("Channel: {Channel}", config.Channel);
-            logger.LogInformation("Auto Relay: {AutoRelay}", config.AutoRelay ? "Enabled" : "Disabled");
-            logger.LogInformation("Heartbeat: {HeartbeatInterval}s", config.HeartbeatInterval.TotalSeconds);
-            logger.LogInformation("Message Timeout: {MessageTimeout}min", config.MessageTimeout.TotalMinutes);
+            // Get battery and storage information
+            var batteryInfo = await client.GetBatteryAndStorageAsync();
+            logger.LogInformation("=== Battery & Storage Information ===");
+            logger.LogInformation("Battery Voltage: {BatteryVoltage} mV ({BatteryVolts:F2} V)", batteryInfo.BatteryVoltage, batteryInfo.BatteryVoltage / 1000.0);
+            logger.LogInformation("Used Storage: {UsedStorage} KB ({UsedStorageMB:F1} MB)", batteryInfo.UsedStorage, batteryInfo.UsedStorage / 1024.0);
+            logger.LogInformation("Total Storage: {TotalStorage} KB ({TotalStorageMB:F1} MB)", batteryInfo.TotalStorage, batteryInfo.TotalStorage / 1024.0);
+            logger.LogInformation("Storage Usage: {StoragePercentage:F1}%", batteryInfo.TotalStorage > 0 ? (batteryInfo.UsedStorage * 100.0) / batteryInfo.TotalStorage : 0);
         }
         catch (NotImplementedException ex) when (ex.Message.Contains("Bluetooth"))
         {

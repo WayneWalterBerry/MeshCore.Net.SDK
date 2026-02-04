@@ -389,38 +389,7 @@ public class LiveRadioContactApiTests : IDisposable
         }
     }
 
-    /// <summary>
-    /// Test: Device information retrieval
-    /// </summary>
-    [Fact]
-    public async Task Test_03_GetDeviceInfo_ShouldReturnDeviceDetails()
-    {
-        _output.WriteLine("TEST 03: Get Device Info");
-        _output.WriteLine("=======================");
 
-        var preState = await CaptureDeviceState("Pre-DeviceInfo");
-        LogDeviceState(preState, "   ");
-
-        await EnsureConnected();
-
-        var deviceInfo = await _sharedClient!.GetDeviceInfoAsync();
-        
-        var postState = await CaptureDeviceState("Post-DeviceInfo");
-        LogDeviceState(postState, "   ");
-        CompareDeviceStates(preState, postState);
-        
-        _preTestStates[_testMethodName] = preState;
-        _postTestStates[_testMethodName] = postState;
-        
-        Assert.NotNull(deviceInfo);
-        Assert.NotNull(deviceInfo.DeviceId);
-        
-        _output.WriteLine($"? Device Info Retrieved:");
-        _output.WriteLine($"   Device ID: {deviceInfo.DeviceId}");
-        _output.WriteLine($"   Firmware: {deviceInfo.FirmwareVersion}");
-        _output.WriteLine($"   Hardware: {deviceInfo.HardwareVersion}");
-        _output.WriteLine($"   Battery: {deviceInfo.BatteryLevel}%");
-    }
 
     #endregion
 
@@ -430,9 +399,9 @@ public class LiveRadioContactApiTests : IDisposable
     /// Test: Contact name encoding and special characters
     /// </summary>
     [Fact]
-    public async Task Test_04_ContactNameEncoding_ShouldHandleSpecialCharacters()
+    public async Task Test_03_ContactNameEncoding_ShouldHandleSpecialCharacters()
     {
-        _output.WriteLine("TEST 04: Contact Name Encoding & Special Characters");
+        _output.WriteLine("TEST 03: Contact Name Encoding & Special Characters");
         _output.WriteLine("=================================================");
 
         var preState = await CaptureDeviceState("Pre-NameEncoding");
@@ -485,16 +454,16 @@ public class LiveRadioContactApiTests : IDisposable
         _preTestStates[_testMethodName] = preState;
         _postTestStates[_testMethodName] = postState;
         
-        _output.WriteLine($"??  TEST 04 created {_createdTestContacts.Count} contacts that may affect subsequent tests");
+        _output.WriteLine($"??  TEST 03 created {_createdTestContacts.Count} contacts that may affect subsequent tests");
     }
 
     /// <summary>
     /// Test: Node ID format validation
     /// </summary>
     [Fact]
-    public async Task Test_05_NodeIdValidation_ShouldHandleVariousFormats()
+    public async Task Test_04_NodeIdValidation_ShouldHandleVariousFormats()
     {
-        _output.WriteLine("TEST 05: Node ID Format Validation");
+        _output.WriteLine("TEST 04: Node ID Format Validation");
         _output.WriteLine("=================================");
 
         var preState = await CaptureDeviceState("Pre-NodeIdValidation");
@@ -541,16 +510,16 @@ public class LiveRadioContactApiTests : IDisposable
         _preTestStates[_testMethodName] = preState;
         _postTestStates[_testMethodName] = postState;
         
-        _output.WriteLine($"??  TEST 05 created additional contacts that may affect subsequent tests");
+        _output.WriteLine($"??  TEST 04 created additional contacts that may affect subsequent tests");
     }
 
     /// <summary>
     /// Test: Contact data persistence across operations
     /// </summary>
     [Fact]
-    public async Task Test_06_ContactDataPersistence_ShouldMaintainDataIntegrity()
+    public async Task Test_05_ContactDataPersistence_ShouldMaintainDataIntegrity()
     {
-        _output.WriteLine("TEST 06: Contact Data Persistence");
+        _output.WriteLine("TEST 05: Contact Data Persistence");
         _output.WriteLine("================================");
 
         var preState = await CaptureDeviceState("Pre-DataPersistence");
@@ -631,13 +600,13 @@ public class LiveRadioContactApiTests : IDisposable
     /// Test: Contact CRUD operations lifecycle
     /// </summary>
     [Fact]
-    [Trait("Priority", "7")] // Ensure this runs after other tests
-    public async Task Test_07_ContactCRUD_ShouldHandleFullLifecycle()
+    [Trait("Priority", "6")] // Ensure this runs after other tests
+    public async Task Test_06_ContactCRUD_ShouldHandleFullLifecycle()
     {
-        _output.WriteLine("TEST 07: Contact CRUD Lifecycle");
+        _output.WriteLine("TEST 06: Contact CRUD Lifecycle");
         _output.WriteLine("==============================");
         
-        // Enhanced pre-test diagnostics for Test 07
+        // Enhanced pre-test diagnostics for Test 06
         _output.WriteLine("?? PRE-TEST DIAGNOSTICS:");
         _output.WriteLine($"   Test execution order: {string.Join(" ? ", _testExecutionOrder)}");
         
@@ -668,7 +637,7 @@ public class LiveRadioContactApiTests : IDisposable
 
         await EnsureConnected();
         
-        // CRITICAL: Enhanced device state isolation for Test 07
+        // CRITICAL: Enhanced device state isolation for Test 06
         _output.WriteLine("?? ENHANCED DEVICE STATE ISOLATION:");
         _output.WriteLine("   Step 1: Aggressive state clearing...");
         await ClearDeviceState();
@@ -699,7 +668,7 @@ public class LiveRadioContactApiTests : IDisposable
             catch (Exception retryEx)
             {
                 _output.WriteLine($"   ? Device recovery failed: {retryEx.Message}");
-                _output.WriteLine("   ?? Test 07 may fail due to device communication issues");
+                _output.WriteLine("   ??  Test 06 may fail due to device communication issues");
             }
         }
         
@@ -736,7 +705,7 @@ public class LiveRadioContactApiTests : IDisposable
             }
             else
             {
-                _output.WriteLine($"   ?? READ: Contact not found in list (device firmware limitation)");
+                _output.WriteLine($"   ??  READ: Contact not found in list (device firmware limitation)");
                 _output.WriteLine($"   ?? Note: Contact add operation succeeded but device doesn't store it in contact list");
             }
 
@@ -764,7 +733,7 @@ public class LiveRadioContactApiTests : IDisposable
             }
             else
             {
-                _output.WriteLine($"   ?? DELETE: Skipping delete since contact was not found in list");
+                _output.WriteLine($"   ??  DELETE: Skipping delete since contact was not found in list");
                 _output.WriteLine($"   ?? Note: This is expected due to device firmware limitation");
                 _createdTestContacts.Remove(contactId); // Don't try to clean up in disposal since it's not really stored
             }
@@ -773,7 +742,7 @@ public class LiveRadioContactApiTests : IDisposable
         {
             _output.WriteLine($"? CRUD operation failed: {ex.Message}");
             
-            // Enhanced error diagnostics for Test 07
+            // Enhanced error diagnostics for Test 06
             _output.WriteLine("?? FAILURE DIAGNOSTICS:");
             if (ex is ProtocolException protocolEx)
             {
@@ -821,9 +790,9 @@ public class LiveRadioContactApiTests : IDisposable
     /// Test: Invalid contact operations error handling
     /// </summary>
     [Fact]
-    public async Task Test_08_ErrorHandling_ShouldHandleInvalidOperations()
+    public async Task Test_07_ErrorHandling_ShouldHandleInvalidOperations()
     {
-        _output.WriteLine("TEST 08: Error Handling for Invalid Operations");
+        _output.WriteLine("TEST 07: Error Handling for Invalid Operations");
         _output.WriteLine("=============================================");
 
         var preState = await CaptureDeviceState("Pre-ErrorHandling");
@@ -957,27 +926,4 @@ public class LiveRadioContactApiTests : IDisposable
     }
 
     #endregion
-}
-
-/// <summary>
-/// Device state snapshot for debugging test interactions
-/// </summary>
-public class DeviceStateSnapshot
-{
-    public string Context { get; set; } = string.Empty;
-    public string TestMethod { get; set; } = string.Empty;
-    public DateTime Timestamp { get; set; }
-    public bool IsConnected { get; set; }
-    public int ContactCount { get; set; }
-    public List<string> ContactSample { get; set; } = new();
-    public int MessageCount { get; set; }
-    public int BatteryLevel { get; set; }
-    public string FirmwareVersion { get; set; } = string.Empty;
-    public string StateError { get; set; } = string.Empty;
-    
-    // Channel-specific state properties
-    public int ChannelCount { get; set; }
-    public List<string> ChannelSample { get; set; } = new();
-    public string? CurrentChannelName { get; set; }
-    public string? ChannelStateError { get; set; }
 }

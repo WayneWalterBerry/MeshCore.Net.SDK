@@ -22,6 +22,6 @@ namespace MeshCore.Net.SDK.Serialization
         /// <param name="data">The byte array to deserialize</param>
         /// <param name="result">The deserialized object if successful</param>
         /// <returns>True if deserialization succeeded, false otherwise</returns>
-        bool TryDeserialize(byte[] data, out T result);
+        bool TryDeserialize(byte[] data, out T? result);
     }
 }

@@ -42,47 +42,6 @@ public class DeviceInfo
 }
 
 /// <summary>
-/// Represents a contact in the MeshCore network
-/// </summary>
-public class Contact
-{
-    /// <summary>
-    /// Gets or sets the unique contact identifier
-    /// </summary>
-    public string Id { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the display name of the contact
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the MeshCore node identifier
-    /// </summary>
-    public string? NodeId { get; set; }
-
-    /// <summary>
-    /// Gets or sets when the contact was last seen on the network
-    /// </summary>
-    public DateTime? LastSeen { get; set; }
-
-    /// <summary>
-    /// Gets or sets the signal strength for communication with this contact
-    /// </summary>
-    public int SignalStrength { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether the contact is currently online
-    /// </summary>
-    public bool IsOnline { get; set; }
-
-    /// <summary>
-    /// Gets or sets the current status of the contact
-    /// </summary>
-    public ContactStatus Status { get; set; }
-}
-
-/// <summary>
 /// Defines the possible status values for a contact
 /// </summary>
 public enum ContactStatus
@@ -106,57 +65,6 @@ public enum ContactStatus
     /// Contact is away
     /// </summary>
     Away = 3
-}
-
-/// <summary>
-/// Represents a message in the MeshCore network
-/// </summary>
-public class Message
-{
-    /// <summary>
-    /// Gets or sets the unique message identifier
-    /// </summary>
-    public string Id { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the contact identifier of the sender
-    /// </summary>
-    public string FromContactId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the contact identifier of the recipient
-    /// </summary>
-    public string ToContactId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the message content
-    /// </summary>
-    public string Content { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the timestamp when the message was created
-    /// </summary>
-    public DateTime Timestamp { get; set; }
-
-    /// <summary>
-    /// Gets or sets the type of message
-    /// </summary>
-    public MessageType Type { get; set; }
-
-    /// <summary>
-    /// Gets or sets the current status of the message
-    /// </summary>
-    public MessageStatus Status { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether the message has been read
-    /// </summary>
-    public bool IsRead { get; set; }
-
-    /// <summary>
-    /// Gets or sets the number of delivery attempts made for this message
-    /// </summary>
-    public int? DeliveryAttempts { get; set; }
 }
 
 /// <summary>
@@ -276,47 +184,6 @@ public enum NetworkMode
     /// Device operates as a gateway node
     /// </summary>
     Gateway = 2
-}
-
-/// <summary>
-/// Represents device configuration
-/// </summary>
-public class DeviceConfiguration
-{
-    /// <summary>
-    /// Gets or sets the device name
-    /// </summary>
-    public string? DeviceName { get; set; }
-
-    /// <summary>
-    /// Gets or sets the transmit power level
-    /// </summary>
-    public int TransmitPower { get; set; }
-
-    /// <summary>
-    /// Gets or sets the communication channel number
-    /// </summary>
-    public int Channel { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether automatic message relaying is enabled
-    /// </summary>
-    public bool AutoRelay { get; set; }
-
-    /// <summary>
-    /// Gets or sets the interval between heartbeat messages
-    /// </summary>
-    public TimeSpan HeartbeatInterval { get; set; }
-
-    /// <summary>
-    /// Gets or sets the timeout for message delivery
-    /// </summary>
-    public TimeSpan MessageTimeout { get; set; }
-
-    /// <summary>
-    /// Gets or sets custom configuration settings
-    /// </summary>
-    public Dictionary<string, object> CustomSettings { get; set; } = new();
 }
 
 /// <summary>
