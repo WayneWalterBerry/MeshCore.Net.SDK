@@ -14,12 +14,33 @@ public class BluetoothTransport : ITransport
     private readonly ILogger<BluetoothTransport> _logger;
     private bool _disposed;
 
+    /// <summary>
+    /// Event fired when a frame is received from the MeshCore device
+    /// </summary>
+#pragma warning disable CS0067 // Event is declared but never used - required by interface
     public event EventHandler<MeshCoreFrame>? FrameReceived;
+    
+    /// <summary>
+    /// Event fired when an error occurs during communication
+    /// </summary>
     public event EventHandler<Exception>? ErrorOccurred;
+#pragma warning restore CS0067
 
+    /// <summary>
+    /// Gets whether the transport is currently connected to a MeshCore device
+    /// </summary>
     public bool IsConnected { get; private set; }
+    
+    /// <summary>
+    /// Gets the connection identifier (device ID) for this transport
+    /// </summary>
     public string? ConnectionId => _deviceId;
 
+    /// <summary>
+    /// Creates a new Bluetooth LE transport for the specified device
+    /// </summary>
+    /// <param name="deviceId">The Bluetooth device identifier</param>
+    /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
     public BluetoothTransport(string deviceId, ILoggerFactory? loggerFactory = null)
     {
         _deviceId = deviceId;
@@ -28,23 +49,45 @@ public class BluetoothTransport : ITransport
         _logger.LogDebug("Bluetooth LE Transport created for device {DeviceId} (not yet implemented)", deviceId);
     }
 
+    /// <summary>
+    /// Connects to the MeshCore device via Bluetooth LE
+    /// </summary>
+    /// <returns>A task representing the asynchronous connection operation</returns>
+    /// <exception cref="NotImplementedException">Thrown because Bluetooth LE transport is not yet implemented</exception>
     public Task ConnectAsync()
     {
         _logger.LogInformation("Bluetooth LE transport is not yet implemented");
         throw new NotImplementedException("Bluetooth LE transport will be implemented in v2.0. Please use USB transport for now.");
     }
 
+    /// <summary>
+    /// Disconnects from the MeshCore device
+    /// </summary>
     public void Disconnect()
     {
         IsConnected = false;
         _logger.LogDebug("Bluetooth LE transport disconnected");
     }
 
+    /// <summary>
+    /// Sends a frame to the MeshCore device
+    /// </summary>
+    /// <param name="frame">The frame to send</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    /// <exception cref="NotImplementedException">Thrown because Bluetooth LE transport is not yet implemented</exception>
     public Task SendFrameAsync(MeshCoreFrame frame)
     {
         throw new NotImplementedException("Bluetooth LE transport will be implemented in v2.0");
     }
 
+    /// <summary>
+    /// Sends a command and waits for a response
+    /// </summary>
+    /// <param name="command">The command to send</param>
+    /// <param name="data">Optional command data</param>
+    /// <param name="timeout">Optional timeout for the operation</param>
+    /// <returns>A task representing the asynchronous command operation</returns>
+    /// <exception cref="NotImplementedException">Thrown because Bluetooth LE transport is not yet implemented</exception>
     public Task<MeshCoreFrame> SendCommandAsync(MeshCoreCommand command, byte[]? data = null, TimeSpan? timeout = null)
     {
         throw new NotImplementedException("Bluetooth LE transport will be implemented in v2.0");
@@ -53,6 +96,9 @@ public class BluetoothTransport : ITransport
     /// <summary>
     /// Discovers Bluetooth LE MeshCore devices (placeholder implementation)
     /// </summary>
+    /// <param name="timeout">Optional timeout for the discovery operation</param>
+    /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
+    /// <returns>A task that returns a list of discovered MeshCore devices (currently empty)</returns>
     public static Task<List<MeshCoreDevice>> DiscoverDevicesAsync(TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
         var logger = loggerFactory?.CreateLogger<BluetoothTransport>() ?? NullLogger<BluetoothTransport>.Instance;
@@ -62,6 +108,9 @@ public class BluetoothTransport : ITransport
         return Task.FromResult(new List<MeshCoreDevice>());
     }
 
+    /// <summary>
+    /// Releases all resources used by the transport
+    /// </summary>
     public void Dispose()
     {
         if (!_disposed)

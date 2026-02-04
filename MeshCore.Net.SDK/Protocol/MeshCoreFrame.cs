@@ -7,16 +7,36 @@ namespace MeshCore.Net.SDK.Protocol;
 /// </summary>
 public class MeshCoreFrame
 {
+    /// <summary>
+    /// Gets or sets the frame start byte indicating frame direction
+    /// </summary>
     public byte StartByte { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the length of the payload in bytes
+    /// </summary>
     public ushort Length { get; set; }
+    
+    /// <summary>
+    /// Gets or sets the frame payload data
+    /// </summary>
     public byte[] Payload { get; set; } = Array.Empty<byte>();
     
+    /// <summary>
+    /// Gets whether this is an inbound frame (PC to radio)
+    /// </summary>
     public bool IsInbound => StartByte == ProtocolConstants.FRAME_START_INBOUND;
+    
+    /// <summary>
+    /// Gets whether this is an outbound frame (radio to PC)
+    /// </summary>
     public bool IsOutbound => StartByte == ProtocolConstants.FRAME_START_OUTBOUND;
     
     /// <summary>
     /// Creates a new inbound frame (PC to radio)
     /// </summary>
+    /// <param name="payload">The payload data for the frame</param>
+    /// <returns>A new inbound MeshCore frame</returns>
     public static MeshCoreFrame CreateInbound(byte[] payload)
     {
         return new MeshCoreFrame
@@ -30,6 +50,8 @@ public class MeshCoreFrame
     /// <summary>
     /// Creates a new outbound frame (radio to PC)
     /// </summary>
+    /// <param name="payload">The payload data for the frame</param>
+    /// <returns>A new outbound MeshCore frame</returns>
     public static MeshCoreFrame CreateOutbound(byte[] payload)
     {
         return new MeshCoreFrame
@@ -43,6 +65,7 @@ public class MeshCoreFrame
     /// <summary>
     /// Converts the frame to a byte array for transmission
     /// </summary>
+    /// <returns>The frame as a byte array ready for transmission</returns>
     public byte[] ToByteArray()
     {
         var result = new List<byte>
@@ -58,6 +81,8 @@ public class MeshCoreFrame
     /// <summary>
     /// Parses a byte array into a frame
     /// </summary>
+    /// <param name="data">The byte array to parse</param>
+    /// <returns>A parsed MeshCore frame, or null if parsing failed</returns>
     public static MeshCoreFrame? Parse(byte[] data)
     {
         if (data.Length < ProtocolConstants.FRAME_HEADER_SIZE)
@@ -87,6 +112,7 @@ public class MeshCoreFrame
     /// <summary>
     /// Gets the command from the payload (first byte)
     /// </summary>
+    /// <returns>The command if valid, otherwise null</returns>
     public MeshCoreCommand? GetCommand()
     {
         if (Payload.Length == 0)
@@ -101,6 +127,7 @@ public class MeshCoreFrame
     /// <summary>
     /// Gets the response code from the payload (first byte for outbound frames)
     /// </summary>
+    /// <returns>The response code if valid, otherwise null</returns>
     public MeshCoreResponseCode? GetResponseCode()
     {
         if (Payload.Length == 0)
@@ -115,6 +142,7 @@ public class MeshCoreFrame
     /// <summary>
     /// Gets the status from the payload (second byte for error responses)
     /// </summary>
+    /// <returns>The status code if valid, otherwise null</returns>
     public MeshCoreStatus? GetStatus()
     {
         // For outbound frames, check the response code
@@ -138,6 +166,7 @@ public class MeshCoreFrame
     /// <summary>
     /// Gets the data payload (excluding command and status bytes)
     /// </summary>
+    /// <returns>The data portion of the payload</returns>
     public byte[] GetDataPayload()
     {
         if (Payload.Length <= 2)
@@ -148,6 +177,10 @@ public class MeshCoreFrame
         return data;
     }
     
+    /// <summary>
+    /// Returns a string representation of the frame
+    /// </summary>
+    /// <returns>A formatted string describing the frame</returns>
     public override string ToString()
     {
         var direction = IsInbound ? "?" : "?";

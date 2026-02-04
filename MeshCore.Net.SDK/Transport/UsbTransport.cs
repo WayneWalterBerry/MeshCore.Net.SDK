@@ -18,12 +18,32 @@ public class UsbTransport : ITransport
     private readonly ILogger<UsbTransport> _logger;
     private bool _disposed;
 
+    /// <summary>
+    /// Event fired when a frame is received from the MeshCore device
+    /// </summary>
     public event EventHandler<MeshCoreFrame>? FrameReceived;
+    
+    /// <summary>
+    /// Event fired when an error occurs during communication
+    /// </summary>
     public event EventHandler<Exception>? ErrorOccurred;
 
+    /// <summary>
+    /// Gets whether the transport is currently connected to a MeshCore device
+    /// </summary>
     public bool IsConnected => _serialPort?.IsOpen == true;
+    
+    /// <summary>
+    /// Gets the connection identifier (port name) for this transport
+    /// </summary>
     public string? ConnectionId => _serialPort?.PortName;
 
+    /// <summary>
+    /// Creates a new USB transport for the specified serial port
+    /// </summary>
+    /// <param name="portName">The name of the serial port (e.g., "COM3")</param>
+    /// <param name="baudRate">The baud rate for communication (default: 115200)</param>
+    /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
     public UsbTransport(string portName, int baudRate = 115200, ILoggerFactory? loggerFactory = null)
     {
         _logger = loggerFactory?.CreateLogger<UsbTransport>() ?? NullLogger<UsbTransport>.Instance;
@@ -161,7 +181,7 @@ public class UsbTransport : ITransport
             
             return response;
         }
-        catch (MeshCoreTimeoutException ex)
+        catch (MeshCoreTimeoutException)
         {
             _logger.LogCommandTimeout((byte)command, portName, (int)timeout.Value.TotalMilliseconds);
             MeshCoreSdkEventSource.Log.CommandTimeout((byte)command, portName, (int)timeout.Value.TotalMilliseconds);
@@ -180,13 +200,75 @@ public class UsbTransport : ITransport
 
         void OnFrameReceived(object? sender, MeshCoreFrame frame)
         {
-            // Accept any outbound frame as a response - the device may respond with a different command
-            // or status frame rather than echoing the original command
+            // Accept any outbound frame as a response for now - this is the problematic line
+            // The issue is that we're not properly correlating commands with responses
+            // This can cause command/response mismatches when multiple commands are sent rapidly
             if (frame.IsOutbound)
             {
-                timer.Dispose();
-                FrameReceived -= OnFrameReceived;
-                tcs.TrySetResult(frame);
+                // IMPROVED: Add more specific response validation
+                var responseCode = frame.GetResponseCode();
+                
+                // For specific commands, validate expected response types
+                bool isValidResponse = expectedCommand switch
+                {
+                    MeshCoreCommand.CMD_DEVICE_QUERY => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_DEVICE_INFO || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_GET_CONTACTS => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CONTACTS_START || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_GET_DEVICE_TIME => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CURR_TIME || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_GET_BATT_AND_STORAGE => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_GET_CHANNEL =>
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CHANNEL_INFO ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_SYNC_NEXT_MESSAGE => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV_V3 ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV_V3 ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_NO_MORE_MESSAGES ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_END_OF_CONTACTS ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_ADD_UPDATE_CONTACT => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_OK || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_REMOVE_CONTACT => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_OK || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_APP_START => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_SELF_INFO || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_SEND_TXT_MSG => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_SENT || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG => 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_SENT || 
+                        responseCode == MeshCoreResponseCode.RESP_CODE_OK ||
+                        responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+                    // For other commands, accept OK or ERR as generic responses
+                    _ => responseCode == MeshCoreResponseCode.RESP_CODE_OK || 
+                         responseCode == MeshCoreResponseCode.RESP_CODE_ERR
+                };
+                
+                if (isValidResponse)
+                {
+                    timer.Dispose();
+                    FrameReceived -= OnFrameReceived;
+                    tcs.TrySetResult(frame);
+                }
+                else
+                {
+                    // Log unexpected response for debugging
+                    _logger.LogWarning("Unexpected response code {ResponseCode} for command {Command} on device {DeviceId}", 
+                        responseCode, expectedCommand, _serialPort?.PortName ?? "Unknown");
+                }
             }
         }
 
@@ -242,7 +324,7 @@ public class UsbTransport : ITransport
                     frameBuffer.Add(buffer[i]);
                     
                     // Try to parse a complete frame
-                    if (TryParseFrame(frameBuffer, out var frame))
+                    if (TryParseFrame(frameBuffer, out var frame) && frame != null)
                     {
                         _logger.LogFrameParsed(frame.StartByte, frame.Length, frame.Payload.Length);
                         MeshCoreSdkEventSource.Log.FrameParsed(frame.StartByte, frame.Length, frame.Payload.Length);
@@ -435,6 +517,9 @@ public class UsbTransport : ITransport
         return devices;
     }
 
+    /// <summary>
+    /// Releases all resources used by the transport
+    /// </summary>
     public void Dispose()
     {
         if (!_disposed)

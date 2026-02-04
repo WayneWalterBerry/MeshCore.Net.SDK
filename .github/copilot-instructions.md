@@ -12,6 +12,9 @@ This document outlines the coding standards, conventions, and best practices for
 - **Silent by Default**: Libraries should not produce output unless explicitly configured
 - **Abstraction-Based**: Use `ILogger`/`ILoggerFactory` abstractions, never concrete implementations
 - **Optional Logging**: Always provide no-op defaults when loggers are not supplied
+- **API Compatibility**: Assume all documented MeshCore APIs are supported on current firmware when testing; implement graceful fallbacks rather than assuming unavailability
+- **Graceful Degradation**: When APIs return InvalidCommand, implement fallback mechanisms to maintain functionality
+- **Testing Assumption**: For testing purposes, assume firmware is always up to date and supports all documented features
 
 ## ?? Code Style
 
@@ -82,10 +85,10 @@ public class ClassName
 - Group related methods together
 - Separate method groups with blank lines
 
-### Documentation
+### Documentation Requirements
 
-#### XML Documentation
-All public APIs must have XML documentation:
+#### XML Documentation (Critical - Required for all public APIs)
+**ALL public APIs MUST have complete XML documentation to prevent CS1591 warnings:**
 
 ```csharp
 /// <summary>
@@ -95,6 +98,81 @@ All public APIs must have XML documentation:
 /// <returns>Description of what is returned</returns>
 /// <exception cref="ExceptionType">When this exception is thrown</exception>
 public async Task<ReturnType> MethodName(ParameterType paramName)
+```
+
+**Required XML documentation for:**
+- **ALL** public classes
+- **ALL** public interfaces  
+- **ALL** public methods (including constructors)
+- **ALL** public properties
+- **ALL** public events
+- **ALL** public fields (including constants)
+- **ALL** public enum types and their values
+- **ALL** public delegates
+
+**Examples of proper documentation:**
+
+```csharp
+/// <summary>
+/// Represents a MeshCore protocol frame
+/// </summary>
+public class MeshCoreFrame
+{
+    /// <summary>
+    /// Gets or sets the frame start byte indicating frame direction
+    /// </summary>
+    public byte StartByte { get; set; }
+    
+    /// <summary>
+    /// Event fired when a frame is received from the MeshCore device
+    /// </summary>
+    public event EventHandler<MeshCoreFrame>? FrameReceived;
+    
+    /// <summary>
+    /// Creates a new inbound frame (PC to radio)
+    /// </summary>
+    /// <param name="payload">The payload data for the frame</param>
+    /// <returns>A new inbound MeshCore frame</returns>
+    public static MeshCoreFrame CreateInbound(byte[] payload) { }
+}
+
+/// <summary>
+/// Defines the type of device connection
+/// </summary>
+public enum DeviceConnectionType
+{
+    /// <summary>
+    /// USB serial connection
+    /// </summary>
+    USB,
+    
+    /// <summary>
+    /// Classic Bluetooth connection
+    /// </summary>
+    Bluetooth
+}
+```
+
+**For LoggerMessage methods:**
+```csharp
+/// <summary>
+/// Logs when device discovery starts for a specific transport type
+/// </summary>
+/// <param name="logger">The logger instance</param>
+/// <param name="transportType">The type of transport being used for discovery</param>
+[LoggerMessage(EventId = 1001, Level = LogLevel.Information, 
+    Message = "Device discovery started for transport: {TransportType}")]
+public static partial void LogDeviceDiscoveryStarted(this ILogger logger, string transportType);
+```
+
+**For EventSource methods:**
+```csharp
+/// <summary>
+/// Logs when device discovery starts for a specific transport
+/// </summary>
+/// <param name="transportType">The type of transport being used for discovery</param>
+[Event(100, Level = EventLevel.Informational, Message = "Device discovery started for transport: {transportType}")]
+public void DeviceDiscoveryStarted(string transportType) { }
 ```
 
 #### Comments
@@ -134,6 +212,48 @@ Console.WriteLine("  ?? Error for COM3: UnauthorizedAccess - Access denied");
 - Always include meaningful error messages
 - Preserve original exceptions when wrapping: `throw new CustomException("Message", originalException)`
 
+#### API Compatibility and Fallback Patterns
+- **Assumption**: All documented MeshCore protocol APIs are supported on current firmware
+- **InvalidCommand Responses**: When receiving InvalidCommand status, implement graceful fallbacks rather than assuming the API is unsupported
+- **Fallback Strategy**: Provide alternative implementations that achieve similar functionality using supported commands
+- **User Experience**: Ensure fallbacks are transparent to the user while logging the fallback usage for debugging
+- **Fallback Appropriateness**: Do not implement fallbacks that could compromise user intent or send data to unintended recipients (e.g., don't fallback channel messaging to broadcast messaging)
+- **Clear Failures**: When a specific feature is not supported and no appropriate fallback exists, throw a clear `NotSupportedException` rather than attempting inappropriate workarounds
+
+```csharp
+// ? Good: Graceful fallback implementation for appropriate scenarios
+if (status == MeshCoreStatus.InvalidCommand)
+{
+    _logger.LogWarning("Device {DeviceId} returned InvalidCommand for {Command}, attempting fallback", deviceId, commandName);
+    
+    try
+    {
+        // Only fallback if it maintains the same user intent
+        return await FallbackImplementation();
+    }
+    catch (Exception fallbackEx)
+    {
+        _logger.LogError(fallbackEx, "Fallback also failed for device {DeviceId}", deviceId);
+        var combinedMessage = $"Primary method failed and fallback failed. Original: {originalError}. Fallback: {fallbackEx.Message}";
+        throw new ProtocolException(command, statusByte, combinedMessage);
+    }
+}
+
+// ? Good: Clear failure when no appropriate fallback exists
+if (status == MeshCoreStatus.InvalidCommand)
+{
+    _logger.LogError("Device {DeviceId} does not support {Command}", deviceId, commandName);
+    throw new NotSupportedException($"{commandName} is not supported by this device firmware. Device {deviceId} does not recognize this command.");
+}
+
+// ? Avoid: Inappropriate fallbacks that compromise user intent
+if (status == MeshCoreStatus.InvalidCommand)
+{
+    // Don't send channel messages to different recipients
+    return await SendToBroadcastInstead(); // This changes the intended recipients!
+}
+```
+
 #### Async/Await Patterns
 ```csharp
 // ? Good: Proper exception handling
@@ -168,6 +288,9 @@ catch (Exception ex)
 
 #### IDisposable Pattern
 ```csharp
+/// <summary>
+/// Releases all resources used by the transport
+/// </summary>
 public void Dispose()
 {
     if (!_disposed)
@@ -310,7 +433,7 @@ MeshCore.Net.SDK/
 
 ### Before Submitting
 - [ ] Code follows naming conventions
-- [ ] All public APIs have XML documentation
+- [ ] **ALL public APIs have complete XML documentation (prevents CS1591 warnings)**
 - [ ] Error handling is appropriate and consistent
 - [ ] Resources are properly disposed
 - [ ] Async patterns are used correctly
@@ -352,6 +475,28 @@ catch
 var result = SomeAsyncMethod().Result;
 ```
 
+### Documentation Anti-Patterns
+```csharp
+// ? Avoid: Missing XML documentation (causes CS1591 warnings)
+public class MissingDocs  // Missing /// <summary>
+{
+    public string Property { get; set; }  // Missing /// <summary>
+    public void Method() { }  // Missing /// <summary>
+}
+
+// ? Avoid: Incomplete documentation
+/// <summary>
+/// Does something
+/// </summary>
+public void DoSomething(string param)  // Missing <param name="param">
+
+// ? Avoid: Generic documentation
+/// <summary>
+/// Gets or sets the value
+/// </summary>
+public string Value { get; set; }  // Be specific about what value
+```
+
 ### Logging Anti-Patterns
 ```csharp
 // ? Avoid: Direct console output in libraries
@@ -383,7 +528,10 @@ while (true)
 - [Async/Await Best Practices](https://docs.microsoft.com/en-us/archive/msdn-magazine/2013/march/async-await-best-practices-in-asynchronous-programming)
 - [High-performance logging in .NET](https://docs.microsoft.com/en-us/dotnet/core/extensions/high-performance-logging)
 - [Logging library authors guidance](https://docs.microsoft.com/en-us/dotnet/core/extensions/logging-library-authors)
+- [XML Documentation Comments](https://docs.microsoft.com/en-us/dotnet/csharp/language-reference/xmldoc/)
 
 ---
 
 **Note**: These guidelines should be considered living documentation. As the project evolves, update this document to reflect new patterns and lessons learned.
+
+**Critical Reminder**: The project has CS1591 warnings enabled which require XML documentation for ALL public APIs. This is enforced at build time to ensure comprehensive API documentation.

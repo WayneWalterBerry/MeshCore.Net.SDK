@@ -22,6 +22,8 @@
     
     <!-- XML Documentation -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Enable CS1591 warnings for missing XML documentation -->
+    <WarningsAsErrors>CS1591</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
