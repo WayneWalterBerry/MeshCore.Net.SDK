@@ -171,9 +171,17 @@ public abstract class LiveRadioTestBase : IDisposable
     /// </summary>
     /// <param name="context">Context description for this state capture</param>
     /// <returns>Device state snapshot</returns>
-    protected Task<DeviceInfo?> GetDeviceInfoAsync()
+    protected Task<DeviceInfo?> TryGetDeviceInfoAsync(CancellationToken cancellationToken = default)
     {
-        return _sharedClient?.GetDeviceInfoAsync();
+        // If there is no shared client yet, we genuinely have no device info.
+        if (_sharedClient is null)
+        {
+            return Task.FromResult<DeviceInfo?>(null);
+        }
+
+        // MeshCodeClient.GetDeviceInfoAsync returns Task<DeviceInfo> (non-null),
+        // but we're allowing DeviceInfo? at the API boundary for callers.
+        return _sharedClient.GetDeviceInfoAsync(cancellationToken)!;
     }
 
     /// <summary>
@@ -183,8 +191,7 @@ public abstract class LiveRadioTestBase : IDisposable
     /// <param name="prefix">Optional prefix for indentation</param>
     protected void LogDeviceState(DeviceInfo? deviceInfo, string prefix = "")
     {
-        _output.WriteLine($"{prefix}   Connected: {deviceInfo?.IsConnected}");
-        _output.WriteLine($"{prefix}   Battery: {deviceInfo?.BatteryLevel}%");
+        _output.WriteLine($"{prefix}   MaxContacts: {deviceInfo?.MaxContacts}");
         _output.WriteLine($"{prefix}   Firmware: {deviceInfo?.FirmwareVersion}");
     }
 
@@ -308,7 +315,7 @@ public abstract class LiveRadioTestBase : IDisposable
             await EnsureConnected();
         }
 
-        LogDeviceState(await GetDeviceInfoAsync(), "   ");
+        LogDeviceState(await TryGetDeviceInfoAsync(), "   ");
 
         await testAction();
     }
@@ -343,12 +350,12 @@ public abstract class LiveRadioTestBase : IDisposable
     /// Generates a test node ID for contact testing
     /// </summary>
     /// <returns>Random hex string for testing</returns>
-    protected static byte[] GeneratePublicKey()
+    protected static ContactPublicKey GeneratePublicKey()
     {
         var random = new Random();
         var bytes = new byte[16];
         random.NextBytes(bytes);
-        return bytes;
+        return new ContactPublicKey(bytes);
     }
 
     /// <summary>
@@ -389,7 +396,7 @@ public abstract class LiveRadioTestBase : IDisposable
             {
                 try
                 {
-                    LogDeviceState(GetDeviceInfoAsync().Result, "   ");
+                    LogDeviceState(TryGetDeviceInfoAsync().Result, "   ");
                 }
                 catch (Exception ex)
                 {

@@ -195,15 +195,11 @@ public class MeshCoreModelsTests
         {
             DeviceId = "TEST123",
             FirmwareVersion = "1.0.0",
-            BatteryLevel = 85,
-            IsConnected = true
         };
         
         // Assert
         Assert.Equal("TEST123", deviceInfo.DeviceId);
         Assert.Equal("1.0.0", deviceInfo.FirmwareVersion);
-        Assert.Equal(85, deviceInfo.BatteryLevel);
-        Assert.True(deviceInfo.IsConnected);
     }
 }
 

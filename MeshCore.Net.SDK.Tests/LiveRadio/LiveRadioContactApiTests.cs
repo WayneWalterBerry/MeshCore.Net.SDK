@@ -17,7 +17,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 [Collection("SequentialTests")] // Ensures tests run sequentially to avoid COM port conflicts
 public class LiveRadioContactApiTests : LiveRadioTestBase
 {
-    private readonly List<byte[]> _createdTestContacts = new();
+    private readonly List<ContactPublicKey> _createdTestContacts = new();
 
     /// <summary>
     /// Gets the test suite name for header display
@@ -50,7 +50,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
     {
         await ExecuteStandardTest("Get Contacts", async () =>
         {
-            var contacts = await SharedClient!.GetContactsAsync();
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
 
             Assert.NotNull(contacts);
             _output.WriteLine($"✅ Retrieved {contacts.Count} contacts from device");
@@ -58,9 +58,9 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
             for (int i = 0; i < contacts.Count; i++)
             {
                 var contact = contacts[i];
-                _output.WriteLine($"   [{i + 1}] {contact.Name} (PublicKey: {Convert.ToHexString(contact.PublicKey)}...)");
+                _output.WriteLine($"   [{i + 1}] {contact.Name} (PublicKey: {contact.PublicKey}...)");
                 _output.WriteLine($"       NodeType: {contact.NodeType}, ContactFlags: {contact.ContactFlags}");
-                _output.WriteLine($"       Advert Path: {contact.AdvertPath}");
+                _output.WriteLine($"       OutboundRoute: {contact.OutboundRoute}");
             }
         });
     }
@@ -75,7 +75,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
         {
             // Step 1: Get current contacts
             _output.WriteLine("📋 Reading current contact list...");
-            var contacts = await SharedClient!.GetContactsAsync();
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
 
             _output.WriteLine($"   Found {contacts.Count} contact(s) on device before delete.");
 
@@ -90,12 +90,12 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
             {
                 try
                 {
-                    _output.WriteLine($"   🗑 Deleting contact: {contact.Name} (PublicKey: {Convert.ToHexString(contact.PublicKey)[..8]}...)");
+                    _output.WriteLine($"   🗑 Deleting contact: {contact.Name} (PublicKey: {contact.PublicKey}...)");
                     await SharedClient.DeleteContactAsync(contact.PublicKey);
                 }
                 catch (ProtocolException ex)
                 {
-                    _output.WriteLine($"   ⚠️  Failed to delete contact {Convert.ToHexString(contact.PublicKey)[..8]}: {ex.Message}");
+                    _output.WriteLine($"   ⚠️  Failed to delete contact {contact.PublicKey}: {ex.Message}");
                     throw;
                 }
             }
@@ -104,11 +104,52 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
             await Task.Delay(1000);
 
             // Step 3: Verify all contacts are gone
-            var remainingContacts = await SharedClient.GetContactsAsync();
+            var remainingContacts = (await SharedClient.GetContactsAsync(CancellationToken.None)).ToList();
             _output.WriteLine($"   Contacts remaining after delete: {remainingContacts.Count}");
 
             Assert.Empty(remainingContacts);
             _output.WriteLine("✅ All contacts successfully deleted from device.");
+        });
+    }
+
+    /// <summary>
+    /// Verifies that deleting the first contact from the device removes it from the contact list.
+    /// </summary>
+    /// <remarks>This test retrieves the current contacts from the device, deletes the first contact if any exist, and
+    /// asserts that the contact is no longer present. The test will pass if the contact is successfully deleted, or if
+    /// there are no contacts to delete.</remarks>
+    /// <returns>A task that represents the asynchronous test operation.</returns>
+    [Fact]
+    public async Task Test_04_DeleteFirstContact_ShouldDeleteContactFromDevice()
+    {
+        await ExecuteStandardTest("Delete All Contacts", async () =>
+        {
+            // Step 1: Get current contacts
+            _output.WriteLine("📋 Reading current contact list...");
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
+
+            _output.WriteLine($"   Found {contacts.Count} contact(s) on device before delete.");
+
+            if (contacts.Count == 0)
+            {
+                _output.WriteLine("   ✅ No contacts to delete – device is already empty.");
+                return;
+            }
+
+            var contact = contacts.First();
+
+            _output.WriteLine($"   🗑 Deleting contact: {contact.Name} (PublicKey: {contact.PublicKey}...)");
+            await SharedClient.DeleteContactAsync(contact.PublicKey);
+
+            // Small delay to allow device to flush changes
+            await Task.Delay(1000);
+
+            // Step 3: Verify all contacts are gone
+            var fetchMissingContact = await SharedClient.TryGetContactAsync(contact.PublicKey);
+
+            Assert.Null(fetchMissingContact);
+
+            _output.WriteLine("✅ Contact successfully deleted from device.");
         });
     }
 
@@ -139,7 +180,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
                 {
                     await Task.Delay(1000); // Wait between retrievals
 
-                    var contacts = await SharedClient.GetContactsAsync();
+                    var contacts = await SharedClient.GetContactsAsync(CancellationToken.None);
                     var foundContact = contacts.FirstOrDefault(c => c.PublicKey == addedContact.PublicKey);
                     retrievalResults.Add(foundContact);
 
@@ -229,11 +270,11 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
             }
 
             _output.WriteLine("   Step 4: Final pre-test state capture...");
-            LogDeviceState(await GetDeviceInfoAsync(), "   ");
+            LogDeviceState(await TryGetDeviceInfoAsync(), "   ");
 
             var testContactName = $"CRUDTest_{DateTime.Now:HHmmss}";
             var testNodeId = GeneratePublicKey();
-            byte[]? publicKey = null;
+            ContactPublicKey? publicKey = null;
 
             try
             {
@@ -244,7 +285,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
 
                 if (publicKey != null)
                 {
-                    _createdTestContacts.Add(publicKey);
+                    _createdTestContacts.Add(publicKey.Value);
                 }
 
                 Assert.Equal(testContactName, createdContact.Name);
@@ -252,7 +293,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
 
                 // READ
                 _output.WriteLine("   Reading contact list...");
-                var contacts = await SharedClient.GetContactsAsync();
+                var contacts = await SharedClient.GetContactsAsync(CancellationToken.None);
                 var foundContact = contacts.FirstOrDefault(c => c.PublicKey == publicKey);
 
                 // Note: CMD_ADD_UPDATE_CONTACT may not immediately add contacts to the device's stored contact list
@@ -272,18 +313,18 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
                 _output.WriteLine("   Deleting contact...");
                 if (foundContact != null)
                 {
-                    await SharedClient.DeleteContactAsync(publicKey);
+                    await SharedClient.DeleteContactAsync(publicKey.Value);
                     _output.WriteLine($"   ✅ DELETE: Contact deletion command sent");
 
                     // Verify deletion
                     await Task.Delay(1000);
-                    var contactsAfterDelete = await SharedClient.GetContactsAsync();
+                    var contactsAfterDelete = await SharedClient.GetContactsAsync(CancellationToken.None);
                     var deletedContactCheck = contactsAfterDelete.FirstOrDefault(c => c.PublicKey == publicKey);
 
                     if (deletedContactCheck == null)
                     {
                         _output.WriteLine($"   ✅ VERIFY: Contact successfully removed from list");
-                        _createdTestContacts.Remove(publicKey); // Don't try to clean up in disposal
+                        _createdTestContacts.Remove(publicKey.Value); // Don't try to clean up in disposal
                     }
                     else
                     {
@@ -294,7 +335,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
                 {
                     _output.WriteLine($"   ⚠️  DELETE: Skipping delete since contact was not found in list");
                     _output.WriteLine($"   📝 Note: This is expected due to device firmware limitation");
-                    _createdTestContacts.Remove(publicKey); // Don't try to clean up in disposal since it's not really stored
+                    _createdTestContacts.Remove(publicKey.Value); // Don't try to clean up in disposal since it's not really stored
                 }
             }
             catch (Exception ex)
@@ -311,7 +352,7 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
                 // Check current device state on failure
                 try
                 {
-                    var deviceInfo = await GetDeviceInfoAsync();
+                    var deviceInfo = await TryGetDeviceInfoAsync();
                     LogDeviceState(deviceInfo, "   ");
 
                     // Show difference from isolated state too
@@ -390,6 +431,37 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
         });
     }
 
+    [Fact]
+    public async Task Test_08_TryGetContactAsync_ShouldGetContactFromDevice()
+    {
+        await ExecuteStandardTest("Delete All Contacts", async () =>
+        {
+            // Step 1: Get current contacts
+            _output.WriteLine("📋 Reading current contact list...");
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
+
+            _output.WriteLine($"   Found {contacts.Count} contact(s) on device.");
+
+            if (contacts.Count == 0)
+            {
+                _output.WriteLine("   ✅ No contacts to delete – device is already empty.");
+                return;
+            }
+
+            // Pick a random contact to test fetching
+            var contact = contacts.OrderBy(_ => Guid.NewGuid()).First();
+
+            // Step 2: Get Contact Using TryGetContactAsync
+            var fetchedContact = await SharedClient.TryGetContactAsync(contact.PublicKey);
+
+            Assert.NotNull(fetchedContact);
+
+            Assert.Equal(contact.Name, fetchedContact!.Name);
+
+            _output.WriteLine("✅ Contact successfully fetched from device.");
+        });
+    }
+
     #endregion
 
     #region Custom Cleanup
@@ -407,16 +479,16 @@ public class LiveRadioContactApiTests : LiveRadioTestBase
         {
             _output.WriteLine($"   Removing {_createdTestContacts.Count} test contacts...");
 
-            foreach (var contactId in _createdTestContacts)
+            foreach (var publicKey in _createdTestContacts)
             {
                 try
                 {
-                    SharedClient.DeleteContactAsync(contactId).Wait(TimeSpan.FromSeconds(5));
-                    _output.WriteLine($"   ✅ Cleaned up contact: {contactId[..Math.Min(8, contactId.Length)]}");
+                    SharedClient.DeleteContactAsync(publicKey).Wait(TimeSpan.FromSeconds(5));
+                    _output.WriteLine($"   ✅ Cleaned up contact: {publicKey}");
                 }
                 catch (Exception ex)
                 {
-                    _output.WriteLine($"   ⚠️  Failed to cleanup contact {contactId[..Math.Min(8, contactId.Length)]}: {ex.Message}");
+                    _output.WriteLine($"   ⚠️  Failed to cleanup contact {publicKey}: {ex.Message}");
                 }
             }
         }

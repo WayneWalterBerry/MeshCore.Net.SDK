@@ -31,8 +31,7 @@ public class ComPortDebugTest
             // Try to send a query command
             Console.WriteLine($"?? Sending device query command...");
             var response = await transport.SendCommandAsync(
-                MeshCoreCommand.CMD_DEVICE_QUERY,
-                timeout: TimeSpan.FromSeconds(5)); // Longer timeout for testing
+                MeshCoreCommand.CMD_DEVICE_QUERY);
             
             Console.WriteLine($"? Received response!");
             Console.WriteLine($"   Status: {response.GetStatus()}");

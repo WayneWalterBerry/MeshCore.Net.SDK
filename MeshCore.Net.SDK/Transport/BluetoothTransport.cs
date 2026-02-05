@@ -80,15 +80,8 @@ public class BluetoothTransport : ITransport
         throw new NotImplementedException("Bluetooth LE transport will be implemented in v2.0");
     }
 
-    /// <summary>
-    /// Sends a command and waits for a response
-    /// </summary>
-    /// <param name="command">The command to send</param>
-    /// <param name="data">Optional command data</param>
-    /// <param name="timeout">Optional timeout for the operation</param>
-    /// <returns>A task representing the asynchronous command operation</returns>
-    /// <exception cref="NotImplementedException">Thrown because Bluetooth LE transport is not yet implemented</exception>
-    public Task<MeshCoreFrame> SendCommandAsync(MeshCoreCommand command, byte[]? data = null, TimeSpan? timeout = null)
+    /// <inheritdoc/>
+    public Task<MeshCoreFrame> SendCommandAsync(MeshCoreCommand command, byte[]? data = null, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException("Bluetooth LE transport will be implemented in v2.0");
     }

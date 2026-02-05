@@ -75,31 +75,52 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
             // Arrange
             await EnsureConnected();
 
-            var contacts = await SharedClient!.GetContactsAsync();
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
 
-            _output.WriteLine("Found {0} contacts to check advert paths for.", contacts.Count);
+            _output.WriteLine("Found {0} contacts to check advert paths for.", contacts.Count());
 
-            foreach (var Contact in contacts)
+            foreach (var contact in contacts)
             {
-                var pubKeyPrefix = Contact.PublicKeyPrefix;
-                Assert.NotNull(pubKeyPrefix ?? throw new InvalidOperationException("No PublicKey found for contact."));
-
                 // Act
-                AdvertPathInfo? advertPath = await SharedClient.TryGetAdvertPathAsync(pubKeyPrefix);
+                AdvertPathInfo? advertPath = await SharedClient.TryGetAdvertPathAsync(contact.PublicKey);
 
-                if (advertPath != null)
-                {
-                    // Assert – it is valid for there to be no known path yet; the main check is that the call succeeds.
-                    _output.WriteLine(
-                        "GetAdvertPathAsync completed for contact '{0}' (PublicKey {1}). Path length: {2}",
-                        Contact.Name,
-                        Convert.ToHexString(Contact.PublicKey),
-                        advertPath?.Path.Length ?? 0);
-                }
+                // Assert – it is valid for there to be no known path yet; the main check is that the call succeeds.
+                _output.WriteLine(
+                    "GetAdvertPathAsync completed for contact '{0}' (PublicKey {1}). Path length: {2}",
+                    contact.Name,
+                    contact.PublicKey,
+                    advertPath?.Path.Length ?? 0);
             }
         });
     }
-        
+
+    /// <summary>
+    /// Verifies that the device advert name can be changed using
+    /// <see cref="MeshCodeClient.SetAdvertNameAsync(string, System.Threading.CancellationToken)"/>.
+    /// </summary>
+    /// <remarks>
+    /// This test sets a known advert name on the connected device and relies on the absence
+    /// of exceptions to validate success. The new name is written to the test output for
+    /// manual verification when needed.
+    /// </remarks>
+    [Fact]
+    public async Task Test_04_SetAdvertName()
+    {
+        const string newAdvertName = "MeshCore.Net.SDK";
+
+        await ExecuteStandardTest("Set advert name", async () =>
+        {
+            // Arrange
+            await EnsureConnected();
+
+            _output.WriteLine("Setting advert name to: {0}", newAdvertName);
+
+            // Act – no exception indicates that the firmware accepted the new name.
+            await SharedClient!.SetAdvertNameAsync(newAdvertName, CancellationToken.None);
+
+            _output.WriteLine("Advert name set successfully.");
+        });
+    }
 
     /// <summary>
     /// Allows derived classes to add suite-specific header information.

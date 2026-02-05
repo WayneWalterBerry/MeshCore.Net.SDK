@@ -41,10 +41,18 @@ public interface ITransport : IDisposable
     Task SendFrameAsync(Protocol.MeshCoreFrame frame);
     
     /// <summary>
-    /// Sends a command and waits for a response
+    /// Sends a command asynchronously to the mesh core and returns the response frame.
     /// </summary>
-    Task<Protocol.MeshCoreFrame> SendCommandAsync(Protocol.MeshCoreCommand command, 
-        byte[]? data = null, TimeSpan? timeout = null);
+    /// <param name="command">The command to send to the mesh core. Specifies the operation to be performed.</param>
+    /// <param name="data">Optional payload data to include with the command. May be null if no additional data is required.</param>
+    /// <param name="cancellationToken">A token to monitor for cancellation requests. The operation is canceled if the token is triggered before
+    /// completion.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the response frame from the mesh
+    /// core.</returns>
+    Task<Protocol.MeshCoreFrame> SendCommandAsync(
+        Protocol.MeshCoreCommand command,
+        byte[]? data = null,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

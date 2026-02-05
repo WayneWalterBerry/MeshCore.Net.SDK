@@ -39,9 +39,4 @@ public sealed class AdvertPathInfo
 
         return $"AdvertPath: length={length}, received={this.ReceivedTimestamp}, path={preview}{suffix}";
     }
-
-    private static char GetHexChar(int value)
-    {
-        return (char)(value < 10 ? ('0' + value) : ('A' + (value - 10)));
-    }
 }

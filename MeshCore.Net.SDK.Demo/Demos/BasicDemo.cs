@@ -113,7 +113,7 @@ public class BasicDemo
             logger.LogInformation("Firmware: {FirmwareVersion}", deviceInfo.FirmwareVersion);
             logger.LogInformation("Hardware: {HardwareVersion}", deviceInfo.HardwareVersion);
             logger.LogInformation("Serial: {SerialNumber}", deviceInfo.SerialNumber);
-            logger.LogInformation("Battery: {BatteryLevel}%", deviceInfo.BatteryLevel);
+            logger.LogInformation("Max Contacts: {MaxContacts}", deviceInfo.MaxContacts);
             logger.LogInformation("Connection: {ConnectionType}", selectedDevice.ConnectionType);
             
             // Sync device time
@@ -132,7 +132,7 @@ public class BasicDemo
             
             // Get contacts
             logger.LogInformation("=== STARTING DETAILED CONTACT ANALYSIS ===");
-            var contacts = await client.GetContactsAsync();
+            var contacts = (await client.GetContactsAsync(CancellationToken.None)).ToList();
             logger.LogInformation("=== Contacts ({ContactCount}) ===", contacts.Count);
             if (contacts.Any())
             {
@@ -140,10 +140,9 @@ public class BasicDemo
                 for (int i = 0; i < contacts.Count; i++)
                 {
                     var contact = contacts[i];
-                    var publicKeyPreview = contact.PublicKey != null ? Convert.ToHexString(contact.PublicKey) : string.Empty;
                     
                     logger.LogInformation("[{ContactIndex:D2}] {ContactName}", i + 1, contact.Name);
-                    logger.LogInformation("       PublicKey: {PublicKey}", publicKeyPreview);
+                    logger.LogInformation("       PublicKey: {PublicKey}", contact.PublicKey);
                 }
             }
             else

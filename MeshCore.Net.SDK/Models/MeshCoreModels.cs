@@ -1,47 +1,6 @@
 namespace MeshCore.Net.SDK.Models;
 
 /// <summary>
-/// Represents a MeshCore device information
-/// </summary>
-public class DeviceInfo
-{
-    /// <summary>
-    /// Gets or sets the unique device identifier
-    /// </summary>
-    public string? DeviceId { get; set; }
-
-    /// <summary>
-    /// Gets or sets the firmware version
-    /// </summary>
-    public string? FirmwareVersion { get; set; }
-
-    /// <summary>
-    /// Gets or sets the hardware version
-    /// </summary>
-    public string? HardwareVersion { get; set; }
-
-    /// <summary>
-    /// Gets or sets the device serial number
-    /// </summary>
-    public string? SerialNumber { get; set; }
-
-    /// <summary>
-    /// Gets or sets when the device was last seen on the network
-    /// </summary>
-    public DateTime? LastSeen { get; set; }
-
-    /// <summary>
-    /// Gets or sets the battery level percentage (0-100)
-    /// </summary>
-    public int BatteryLevel { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether the device is currently connected
-    /// </summary>
-    public bool IsConnected { get; set; }
-}
-
-/// <summary>
 /// Defines the possible types of messages
 /// </summary>
 public enum MessageType

@@ -80,7 +80,7 @@ namespace MeshCore.Net.SDK.Serialization
 
             if (contactData.Length < 36)
             {
-                // Need at least pubkey (32) + type (1) + flags (1) + out_path_len (1) + 1 byte of path
+                // Need at least pubkey (32) + type (1) + flags (1) + out_path_len (1)
                 return false;
             }
 
@@ -95,28 +95,44 @@ namespace MeshCore.Net.SDK.Serialization
             // Flags byte
             var flags = contactData[33];
 
-            // out_path_len
+            // out_path_len (logical length / sentinel)
             var outPathLen = contactData[34];
 
-            // Ensure buffer is large enough for out_path
-            var requiredMinLength = 35 + outPathLen;
+            // Firmware always writes a fixed MAX_PATH_SIZE out_path block regardless of outPathLen.
+            // This must match firmware MAX_PATH_SIZE in MyMesh/ContactInfo.
+            const int MAX_PATH_SIZE = 64;
+
+            // Ensure buffer is large enough for the fixed-size out_path block.
+            var requiredMinLength = 35 + MAX_PATH_SIZE;
             if (contactData.Length < requiredMinLength)
             {
-                // Payload does not contain the full out_path
+                // Payload does not contain the full fixed-size out_path block.
                 return false;
             }
 
-            // out_path bytes
-            var outPathBytes = new byte[outPathLen];
-            if (outPathLen > 0)
+            // Interpret outPathLen:
+            // - 0xFF means "no valid outbound path"
+            // - otherwise clamp to MAX_PATH_SIZE for safety.
+            var effectiveOutPathLen = outPathLen == 0xFF
+                ? 0
+                : Math.Min(outPathLen, (byte)MAX_PATH_SIZE);
+
+            // Extract only the meaningful part of the fixed-size out_path block for higher-level parsing.
+            byte[] outPathBytes;
+            if (effectiveOutPathLen > 0)
             {
-                Array.Copy(contactData, 35, outPathBytes, 0, outPathLen);
+                outPathBytes = new byte[effectiveOutPathLen];
+                Array.Copy(contactData, 35, outPathBytes, 0, effectiveOutPathLen);
+            }
+            else
+            {
+                outPathBytes = Array.Empty<byte>();
             }
 
             string contactName = "Unknown Contact";
 
-            // Name is after the out_path block.
-            var nameSearchStart = 35 + outPathLen;
+            // In firmware, name is stored after the fixed-size out_path block.
+            var nameSearchStart = 35 + MAX_PATH_SIZE;
 
             // Guard: keep at least 8 bytes for trailing fields (timestamps, gps, etc.)
             if (nameSearchStart < 32)
@@ -174,13 +190,16 @@ namespace MeshCore.Net.SDK.Serialization
                 }
             }
 
+            OutboundRoute? outboundRoute;
+            OutboundRouteSerialization.Instance.TryDeserialize(outPathBytes, out outboundRoute);
+
             result = new Contact
             {
                 Name = contactName,
-                PublicKey = publicKey,
+                PublicKey = new ContactPublicKey(publicKey),
                 NodeType = nodeType,
                 ContactFlags = (ContactFlags)flags,
-                AdvertPath = AdvertPathSerialization.Instance.Deserialize(outPathBytes)
+                OutboundRoute = outboundRoute
             };
 
             return true;

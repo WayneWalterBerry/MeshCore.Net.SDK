@@ -39,7 +39,6 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
 {
     // Test constants
     private const string BotChannelName = "#bot"; // The #bot channel for testing
-    private const string TestMessageContent = "Testing MeshCore.NET.SDK";
     private const long DefaultLoRaFrequency = 433175000; // 433.175 MHz - common LoRa frequency
     private const int MessageDeliveryTimeoutMs = 30000; // 30 seconds for message delivery
     private const int ChannelCheckTimeoutMs = 10000; // 10 seconds for channel operations
@@ -59,23 +58,14 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
     }
 
     /// <summary>
-    /// Displays additional header information specific to messaging tests
-    /// </summary>
-    protected override void DisplayAdditionalHeader()
-    {
-        _output.WriteLine($"Target Channel: {BotChannelName}");
-        _output.WriteLine($"Test Message: \"{TestMessageContent}\"");
-        _output.WriteLine($"Default Frequency: {DefaultLoRaFrequency} Hz");
-        _output.WriteLine($"Device Configuration: PugetMesh (910.525 MHz, BW 62.5 kHz, SF 7, CR 5)");
-    }
-
-    /// <summary>
     /// Test: Debug hashtag channel messaging implementation
     /// This test verifies device capabilities and identifies SDK implementation gaps
     /// </summary>
     [Fact]
     public async Task Test_BotChannelMessaging_ShouldSendToHashtagChannel()
     {
+        string message = "T";
+
         await ExecuteStandardTest("Hashtag Channel Messaging Debug", async () =>
         {
             _output.WriteLine("GOAL: Debug SDK implementation of CMD_SEND_CHANNEL_TXT_MSG");
@@ -110,7 +100,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
             _output.WriteLine("");
 
             _output.WriteLine($"🗺️ TEST SCENARIO: Sending to {BotChannelName} hashtag channel");
-            _output.WriteLine($"   Message Content: '{TestMessageContent}'");
+            _output.WriteLine($"   Message Content: '{message}'");
             _output.WriteLine($"   Expected CMD: 0x03 (CMD_SEND_CHANNEL_TXT_MSG)");
             _output.WriteLine($"   Device: {SharedClient!.ConnectionId} (PugetMesh: 910.525 MHz)");
             _output.WriteLine($"   🎡 NEW: Dynamic channel mapping - SDK queries device for actual config");
@@ -119,7 +109,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
 
             try
             {
-                await SharedClient!.SendChannelMessageAsync(BotChannelName, TestMessageContent);
+                await SharedClient!.SendChannelMessageAsync(BotChannelName, message);
 
                 _output.WriteLine($"🎉 TEST PASSED: SDK correctly implemented hashtag channel messaging!");
             }
@@ -129,8 +119,6 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
                 _output.WriteLine($"   Exception: {ex.GetType().Name}");
                 _output.WriteLine($"   Message: {ex.Message}");
                 _output.WriteLine("");
-
-                LogImplementationGuidance();
 
                 _output.WriteLine($"📋 TEST RESULT: SKIPPED (Expected - SDK needs implementation fix)");
                 _output.WriteLine($"🎡 This test will PASS once SDK payload format is corrected");
@@ -250,8 +238,6 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         _output.WriteLine($"   Firmware: {deviceInfo.FirmwareVersion}");
         _output.WriteLine($"   Hardware: {deviceInfo.HardwareVersion}");
         _output.WriteLine($"   Serial: {deviceInfo.SerialNumber}");
-        _output.WriteLine($"   Battery: {deviceInfo.BatteryLevel}%");
-        _output.WriteLine($"   Status: {(deviceInfo.IsConnected ? "Connected" : "Disconnected")}");
 
         // Test basic commands relevant to messaging
         await TestBasicMessagingCommands();
@@ -285,7 +271,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         // Test CMD_GET_CONTACTS
         try
         {
-            var contacts = await SharedClient!.GetContactsAsync();
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
             capabilities.Add(("CMD_GET_CONTACTS (0x04)", $"✓ Works - {contacts.Count} contacts"));
         }
         catch (Exception ex)
@@ -307,7 +293,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         // Test CMD_SEND_TXT_MSG availability
         try
         {
-            var contacts = await SharedClient!.GetContactsAsync();
+            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
             if (contacts.Any())
             {
                 capabilities.Add(("CMD_SEND_TXT_MSG (0x02)", $"✓ Available - {contacts.Count} potential recipients"));
@@ -501,33 +487,6 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         {
             _output.WriteLine($"   ✓ Normal retrieval performance");
         }
-    }
-
-    /// <summary>
-    /// Logs implementation guidance for developers
-    /// </summary>
-    private void LogImplementationGuidance()
-    {
-        _output.WriteLine($"🔍 ROOT CAUSE ANALYSIS:");
-        _output.WriteLine($"   • Device supports other advanced commands (verified above)");
-        _output.WriteLine($"   • CMD_SEND_CHANNEL_TXT_MSG (0x03) returns InvalidCommand");
-        _output.WriteLine($"   • SDK tried multiple payload formats - all failed");
-        _output.WriteLine($"   • This indicates incorrect payload structure in SDK");
-        _output.WriteLine("");
-
-        _output.WriteLine($"🚑 NEXT STEPS FOR DEVELOPERS:");
-        _output.WriteLine($"   1. Research CMD_SEND_CHANNEL_TXT_MSG payload format from:");
-        _output.WriteLine($"      - Official MeshCore protocol documentation");
-        _output.WriteLine($"      - Python SDK reference implementation");
-        _output.WriteLine($"      - meshcore-cli source code");
-        _output.WriteLine($"   2. Compare with working CMD_SEND_TXT_MSG implementation");
-        _output.WriteLine($"   3. Test payload formats:");
-        _output.WriteLine($"      - Channel name only: 'bot'");
-        _output.WriteLine($"      - Message only: '{TestMessageContent}'");
-        _output.WriteLine($"      - Channel ID + message: [index][message]");
-        _output.WriteLine($"      - Different separators: null, space, newline");
-        _output.WriteLine($"   4. Verify PugetMesh-specific requirements if any");
-        _output.WriteLine("");
     }
 
     /// <summary>

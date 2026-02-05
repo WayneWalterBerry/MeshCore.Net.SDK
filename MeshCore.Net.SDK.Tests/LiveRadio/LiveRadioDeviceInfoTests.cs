@@ -60,9 +60,9 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
             _output.WriteLine($"   Device ID: {deviceInfo.DeviceId}");
             _output.WriteLine($"   Firmware: {deviceInfo.FirmwareVersion}");
             _output.WriteLine($"   Hardware: {deviceInfo.HardwareVersion}");
-            _output.WriteLine($"   Battery: {deviceInfo.BatteryLevel}%");
+            _output.WriteLine($"   Max Contacts: {deviceInfo.MaxContacts}");
+            _output.WriteLine($"   Max Group Channels: {deviceInfo.MaxGroupChannels}");
             _output.WriteLine($"   Serial: {deviceInfo.SerialNumber}");
-            _output.WriteLine($"   Status: {(deviceInfo.IsConnected ? "Connected" : "Disconnected")}");
         });
     }
 
@@ -400,7 +400,7 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
             try
             {
                 var deviceInfo = SharedClient.GetDeviceInfoAsync().Result;
-                _output.WriteLine($"   Final device status: {deviceInfo.FirmwareVersion} - {deviceInfo.BatteryLevel}% battery");
+                _output.WriteLine($"   Final device status: {deviceInfo.FirmwareVersion}");
             }
             catch (Exception ex)
             {
