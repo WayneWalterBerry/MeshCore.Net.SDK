@@ -14,7 +14,7 @@ namespace MeshCore.Net.SDK.Serialization
         /// </summary>
         /// <param name="data">The byte array to deserialize</param>
         /// <returns>The deserialized object, or null if deserialization fails</returns>
-        T Deserialize(byte[] data);
+        T? Deserialize(byte[] data);
 
         /// <summary>
         /// Attempts to deserialize a byte array to the specified type

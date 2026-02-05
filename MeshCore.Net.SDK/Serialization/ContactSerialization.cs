@@ -24,7 +24,7 @@ namespace MeshCore.Net.SDK.Serialization
         {
         }
 
-        public Contact Deserialize(byte[] data)
+        public Contact? Deserialize(byte[] data)
         {
             if (!this.TryDeserialize(data, out var result))
             {
@@ -99,12 +99,11 @@ namespace MeshCore.Net.SDK.Serialization
 
             result = new Contact
             {
+                // Only set properties that are actually in the radio payload
                 Id = nodeId,
                 Name = contactName,
-                NodeId = nodeId,
-                LastSeen = DateTime.UtcNow,
-                IsOnline = false,
-                Status = ContactStatus.Unknown
+                NodeId = nodeId
+                // Do NOT set: LastSeen, IsOnline, Status - these aren't in the basic contact payload
             };
 
             return true;

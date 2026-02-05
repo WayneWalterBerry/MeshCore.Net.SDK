@@ -1,4 +1,4 @@
-﻿// <copyright file="MessageLegacySerialization.cs" company="Wayne Walter Berry">
+﻿// <copyright file="MessageChannelLegacySerialization.cs" company="Wayne Walter Berry">
 // Copyright (c) Wayne Walter Berry. All rights reserved.
 // </copyright>
 
@@ -9,28 +9,28 @@ namespace MeshCore.Net.SDK.Serialization
     using MeshCore.Net.SDK.Protocol;
 
     /// <summary>
-    /// Handles serialization and deserialization of legacy format MeshCore messages
-    /// Supports RESP_CODE_CONTACT_MSG_RECV (7) and RESP_CODE_CHANNEL_MSG_RECV (8)
+    /// Handles serialization and deserialization of legacy format MeshCore channel messages
+    /// Supports RESP_CODE_CHANNEL_MSG_RECV (8)
     /// Legacy format does not include SNR data or reserved fields
     /// </summary>
-    internal class MessageLegacySerialization : IBinaryDeserializer<Message>
+    internal class MessageChannelLegacySerialization : IBinaryDeserializer<Message>
     {
-        private static readonly Lazy<MessageLegacySerialization> _instance = new(() => new MessageLegacySerialization());
+        private static readonly Lazy<MessageChannelLegacySerialization> _instance = new(() => new MessageChannelLegacySerialization());
 
         /// <summary>
-        /// Gets the singleton instance of the MessageLegacySerialization
+        /// Gets the singleton instance of the MessageChannelLegacySerialization
         /// </summary>
-        public static MessageLegacySerialization Instance => _instance.Value;
+        public static MessageChannelLegacySerialization Instance => _instance.Value;
 
         /// <summary>
         /// Prevents external instantiation of the singleton
         /// </summary>
-        private MessageLegacySerialization()
+        private MessageChannelLegacySerialization()
         {
         }
 
         /// <summary>
-        /// Deserializes legacy format message data
+        /// Deserializes legacy format channel message data
         /// </summary>
         /// <param name="data">Raw message data from device</param>
         /// <returns>Parsed message object</returns>
@@ -39,16 +39,15 @@ namespace MeshCore.Net.SDK.Serialization
         {
             if (!TryDeserialize(data, out Message? result))
             {
-                throw new InvalidOperationException("Failed to deserialize legacy message from binary data");
+                throw new InvalidOperationException("Failed to deserialize legacy channel message from binary data");
             }
 
             return result;
         }
 
         /// <summary>
-        /// Deserializes contact message in legacy format
-        /// Format: pub_key(6) + path_len + txt_type + timestamp + text
-        /// Note: The text field includes sender name prefix in format "SenderName: MessageContent"
+        /// Deserializes channel message in legacy format
+        /// Format: channel_idx + path_len + txt_type + timestamp + text
         /// </summary>
         /// <param name="data">Raw message data</param>
         /// <param name="result">Parsed message</param>
@@ -59,15 +58,13 @@ namespace MeshCore.Net.SDK.Serialization
 
             var offset = 0;
 
-            if (data.Length < 6)
+            if (data.Length < 1)
             {
                 return false;
             }
 
-            // Extract 6-byte contact public key prefix
-            var contactKeyPrefix = new byte[6];
-            Array.Copy(data, offset, contactKeyPrefix, 0, 6);
-            offset += 6;
+            // Extract channel index
+            var channelIndex = data[offset++];
 
             if (data.Length < offset + 1)
             {
@@ -95,26 +92,11 @@ namespace MeshCore.Net.SDK.Serialization
                 messageText = Encoding.UTF8.GetString(data, offset, data.Length - offset).TrimEnd('\0');
             }
 
-            // Parse sender name and message content from the text field
-            // Format: "SenderName: MessageContent"
-            string senderName = Convert.ToHexString(contactKeyPrefix); // Default to hex if parsing fails
-            string messageContent = messageText;
-
-            var colonIndex = messageText.IndexOf(": ");
-            if (colonIndex > 0 && colonIndex < messageText.Length - 2)
-            {
-                senderName = messageText.Substring(0, colonIndex);
-                messageContent = messageText.Substring(colonIndex + 2); // Skip ": "
-            }
-
             result = new Message
             {
-                // Only set properties that are actually in the radio payload
-                FromContactId = senderName,
-                Content = messageContent,
+                Content = messageText, // Channel messages don't have sender name prefix
                 Timestamp = DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime,
                 IsTextMessage = textType == 0x00
-                // Do NOT set: Id, ToContactId, Status, IsRead, DeliveryAttempts - these aren't in the payload
             };
 
             return true;

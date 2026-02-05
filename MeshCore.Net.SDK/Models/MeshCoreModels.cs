@@ -42,32 +42,6 @@ public class DeviceInfo
 }
 
 /// <summary>
-/// Defines the possible status values for a contact
-/// </summary>
-public enum ContactStatus
-{
-    /// <summary>
-    /// Contact status is unknown
-    /// </summary>
-    Unknown = 0,
-
-    /// <summary>
-    /// Contact is online and available
-    /// </summary>
-    Online = 1,
-
-    /// <summary>
-    /// Contact is offline
-    /// </summary>
-    Offline = 2,
-
-    /// <summary>
-    /// Contact is away
-    /// </summary>
-    Away = 3
-}
-
-/// <summary>
 /// Defines the possible types of messages
 /// </summary>
 public enum MessageType
@@ -80,22 +54,7 @@ public enum MessageType
     /// <summary>
     /// Binary data message
     /// </summary>
-    Binary = 1,
-
-    /// <summary>
-    /// Location information message
-    /// </summary>
-    Location = 2,
-
-    /// <summary>
-    /// Status update message
-    /// </summary>
-    Status = 3,
-
-    /// <summary>
-    /// Emergency message
-    /// </summary>
-    Emergency = 4
+    Binary = 1
 }
 
 /// <summary>
@@ -184,62 +143,6 @@ public enum NetworkMode
     /// Device operates as a gateway node
     /// </summary>
     Gateway = 2
-}
-
-/// <summary>
-/// Represents a channel message in the MeshCore network
-/// </summary>
-public class ChannelMessage
-{
-    /// <summary>
-    /// Gets or sets the unique message identifier
-    /// </summary>
-    public string Id { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the channel name this message belongs to
-    /// </summary>
-    public string ChannelName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the channel identifier
-    /// </summary>
-    public string ChannelId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the contact identifier of the sender
-    /// </summary>
-    public string FromContactId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the message content
-    /// </summary>
-    public string Content { get; set; } = string.Empty;
-
-    /// <summary>
-    /// Gets or sets the timestamp when the message was sent
-    /// </summary>
-    public DateTime Timestamp { get; set; }
-
-    /// <summary>
-    /// Gets or sets the message type
-    /// </summary>
-    public MessageType Type { get; set; }
-
-    /// <summary>
-    /// Gets or sets the current status of the message
-    /// </summary>
-    public MessageStatus Status { get; set; }
-
-    /// <summary>
-    /// Gets or sets whether the message has been read
-    /// </summary>
-    public bool IsRead { get; set; }
-
-    /// <summary>
-    /// Gets or sets the signal strength when the message was received
-    /// </summary>
-    public int SignalStrength { get; set; }
 }
 
 /// <summary>

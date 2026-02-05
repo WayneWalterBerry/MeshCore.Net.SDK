@@ -267,12 +267,11 @@ public static partial class LoggerExtensions
     /// </summary>
     /// <param name="logger">The logger instance</param>
     /// <param name="toContactId">The identifier of the contact the message was sent to</param>
-    /// <param name="messageId">The identifier of the message that was sent</param>
     [LoggerMessage(
         EventId = 4002,
         Level = LogLevel.Information,
-        Message = "Message sent successfully: To={ToContactId}, MessageId={MessageId}")]
-    public static partial void LogMessageSent(this ILogger logger, string toContactId, string messageId);
+        Message = "Message sent successfully: To={ToContactId}")]
+    public static partial void LogMessageSent(this ILogger logger, string toContactId);
 
     /// <summary>
     /// Logs when message sending fails
@@ -310,16 +309,15 @@ public static partial class LoggerExtensions
     public static partial void LogMessageRetrievalStarted(this ILogger logger, string deviceId);
 
     /// <summary>
-    /// Logs when message retrieval completes
+    /// Logs when sync queue completes
     /// </summary>
     /// <param name="logger">The logger instance</param>
     /// <param name="deviceId">The identifier of the device from which messages were retrieved</param>
-    /// <param name="messageCount">The number of messages retrieved</param>
     [LoggerMessage(
         EventId = 4006,
         Level = LogLevel.Information,
-        Message = "Message retrieval completed for device: {DeviceId}. Found {MessageCount} messages")]
-    public static partial void LogMessageRetrievalCompleted(this ILogger logger, string deviceId, int messageCount);
+        Message = "Message sync queue completed for device: {DeviceId}")]
+    public static partial void LogSyncQueueCompleted(this ILogger logger, string deviceId);
 
     #endregion
 

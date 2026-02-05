@@ -23,7 +23,7 @@ namespace MeshCore.Net.SDK.Serialization
         {
         }
 
-        public DeviceConfiguration Deserialize(byte[] data)
+        public DeviceConfiguration? Deserialize(byte[] data)
         {
             if (!this.TryDeserialize(data, out var result))
             {

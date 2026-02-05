@@ -89,7 +89,7 @@ public class BasicDemo
             
             client.ContactStatusChanged += (sender, contact) =>
             {
-                logger.LogInformation("?? {ContactName} is now {Status}", contact.Name, contact.Status);
+                logger.LogInformation("?? Contact updated: {ContactName}", contact.Name);
             };
             
             client.NetworkStatusChanged += (sender, status) =>
@@ -140,14 +140,11 @@ public class BasicDemo
                 for (int i = 0; i < contacts.Count; i++)
                 {
                     var contact = contacts[i];
-                    var status = contact.IsOnline ? "Online" : "Offline";
-                    var lastSeen = contact.LastSeen?.ToString("HH:mm") ?? "Never";
                     var nodeIdPreview = contact.NodeId?.Length > 12 ? contact.NodeId[..12] + "..." : contact.NodeId ?? "N/A";
                     var contactIdPreview = contact.Id?.Length > 12 ? contact.Id[..12] + "..." : contact.Id ?? "N/A";
                     
                     logger.LogInformation("[{ContactIndex:D2}] {ContactName}", i + 1, contact.Name);
                     logger.LogInformation("       NodeID: {NodeId}", nodeIdPreview);
-                    logger.LogInformation("       Status: {Status} - Last seen: {LastSeen}", status, lastSeen);
                     logger.LogInformation("       Contact ID: {ContactId}", contactIdPreview);
                 }
             }

@@ -184,8 +184,6 @@ public class MeshCoreModelsTests
         Assert.Equal(string.Empty, contact.Id);
         Assert.Equal(string.Empty, contact.Name);
         Assert.Null(contact.NodeId);
-        Assert.Equal(ContactStatus.Unknown, contact.Status);
-        Assert.False(contact.IsOnline);
     }
     
     [Fact]
@@ -195,13 +193,9 @@ public class MeshCoreModelsTests
         var message = new Message();
         
         // Assert
-        Assert.Equal(string.Empty, message.Id);
         Assert.Equal(string.Empty, message.FromContactId);
-        Assert.Equal(string.Empty, message.ToContactId);
         Assert.Equal(string.Empty, message.Content);
-        Assert.Equal(MessageType.Text, message.Type);
-        Assert.Equal(MessageStatus.Pending, message.Status);
-        Assert.False(message.IsRead);
+        Assert.True(message.IsTextMessage);
     }
     
     [Fact]

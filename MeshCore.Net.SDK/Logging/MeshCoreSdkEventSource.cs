@@ -254,12 +254,11 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <summary>
     /// Logs when a message is sent successfully
     /// </summary>
-    /// <param name="toContactId">The identifier of the contact the message was sent to</param>
-    /// <param name="messageId">The identifier of the message that was sent</param>
-    [Event(401, Level = EventLevel.Informational, Message = "Message sent successfully: To={toContactId}, MessageId={messageId}")]
-    public void MessageSent(string toContactId, string messageId)
+    /// <param name="toContactId">The identifier of the contact or channel the message was sent to</param>
+    [Event(401, Level = EventLevel.Informational, Message = "Message sent successfully: To={toContactId}")]
+    public void MessageSent(string toContactId)
     {
-        WriteEvent(401, toContactId ?? "Unknown", messageId ?? "Unknown");
+        WriteEvent(401, toContactId ?? "Unknown");
     }
 
     /// <summary>

@@ -25,7 +25,7 @@ namespace MeshCore.Net.SDK.Serialization
         {
         }
 
-        public Channel Deserialize(byte[] data)
+        public Channel? Deserialize(byte[] data)
         {
             if (!this.TryDeserialize(data, out Channel? result)) 
             {
