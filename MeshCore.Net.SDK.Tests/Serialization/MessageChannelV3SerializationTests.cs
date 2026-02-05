@@ -31,8 +31,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
         /// </summary>
         public static readonly byte[] ActualDebuggerChannelMessageV3 = new byte[]
         {
-            // V3 Header: SNR=17 (4.25*4), reserved1=48, reserved2=0
-            0x11, 0x30, 0x00,
+            // Response code + V3 Header: RESP_CODE_CHANNEL_MSG_RECV_V3 (0x11), SNR=17 (4.25*4), reserved1=48, reserved2=0
+            0x11, 0x11, 0x30, 0x00,
             
             // Channel message data: channel=0, path=4, txt_type=0
             0x00, 0x04, 0x00,
@@ -68,20 +68,14 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             _output.WriteLine($"Expected message: 'Test'");
             _output.WriteLine($"Expected timestamp: 2040-01-01 00:05:04 UTC (2208808704 seconds)");
 
-            // Act
             var result = serializer.TryDeserialize(ActualDebuggerChannelMessageV3, out Message? message);
 
-            // Assert
             Assert.True(result, "TryDeserialize should succeed with valid debugger data");
             Assert.NotNull(message);
 
-            // Verify channel and sender parsing (debugger shows "iBhamDin: Test")
+            // Current serializer uses full prefix before colon as sender
             Assert.Equal("iBhamDin", message.FromContactId);
-            _output.WriteLine($"✅ FromContactId correctly parsed: {message.FromContactId}");
-
-            // Verify clean message content (sender prefix removed)
             Assert.Equal("Test", message.Content);
-            _output.WriteLine($"✅ Content correctly cleaned: '{message.Content}'");
 
             // Verify timestamp parsing (2208808704 = 2040-01-01 00:05:04 UTC)
             var expectedTimestamp = DateTimeOffset.FromUnixTimeSeconds(2208808704).DateTime;
@@ -103,8 +97,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange - Focus on V3 header validation
             var testData = new byte[]
             {
-                // V3 Header from debugger
-                0x11, 0x30, 0x00,  // SNR=4.25, reserved1=48, reserved2=0
+                // Response code + V3 Header from firmware
+                0x11, 0x11, 0x30, 0x00,  // RESP_CODE + SNR=4.25, reserved1=48, reserved2=0
                 // Minimal channel message
                 0x00, 0x04, 0x00,  // channel=0, path=4, type=0
                 0x00, 0x10, 0x20, 0x83,  // timestamp
@@ -112,9 +106,10 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             };
 
             _output.WriteLine("Testing V3 header parsing:");
-            _output.WriteLine($"SNR byte: 0x{testData[0]:X2} = {testData[0]} / 4 = {testData[0] / 4.0f} dB");
-            _output.WriteLine($"Reserved1: 0x{testData[1]:X2} = {testData[1]}");
-            _output.WriteLine($"Reserved2: 0x{testData[2]:X2} = {testData[2]}");
+            _output.WriteLine($"Response code: 0x{testData[0]:X2}");
+            _output.WriteLine($"SNR byte: 0x{testData[1]:X2} = {testData[1]} / 4 = {testData[1] / 4.0f} dB");
+            _output.WriteLine($"Reserved1: 0x{testData[2]:X2} = {testData[2]}");
+            _output.WriteLine($"Reserved2: 0x{testData[3]:X2} = {testData[3]}");
 
             // Act
             var result = MessageChannelV3Serialization.Instance.TryDeserialize(testData, out Message? message);
@@ -123,9 +118,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             Assert.True(result);
             Assert.NotNull(message);
 
-            // The SNR parsing is internal to the serializer, but we verify it doesn't break parsing
             Assert.Equal("Test", message.Content);
-            _output.WriteLine($"✅ V3 header processed successfully, content: '{message.Content}'");
+            _output.WriteLine($"V3 header processed successfully, content: '{message.Content}'");
         }
 
         /// <summary>
@@ -137,8 +131,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange - Channel message without "Sender: " prefix
             var testData = new byte[]
             {
-                // V3 Header
-                0x11, 0x30, 0x00,
+                // Response code + V3 Header
+                0x11, 0x11, 0x30, 0x00,
                 // Channel message
                 0x01, 0x04, 0x00,  // channel=1, path=4, type=0
                 0x00, 0x10, 0x20, 0x83,  // timestamp
@@ -181,16 +175,16 @@ namespace MeshCore.Net.SDK.Tests.Serialization
         {
             // Arrange
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageText);
-            var testData = new byte[10 + messageBytes.Length];
+            var testData = new byte[11 + messageBytes.Length];
 
-            // V3 Header
-            testData[0] = 0x11; testData[1] = 0x30; testData[2] = 0x00;
+            // Response code + V3 Header
+            testData[0] = 0x11; testData[1] = 0x11; testData[2] = 0x30; testData[3] = 0x00;
             // Channel info
-            testData[3] = 0x00; testData[4] = 0x04; testData[5] = 0x00;
+            testData[4] = 0x00; testData[5] = 0x04; testData[6] = 0x00;
             // Timestamp
-            testData[6] = 0x00; testData[7] = 0x10; testData[8] = 0x20; testData[9] = 0x83;
+            testData[7] = 0x00; testData[8] = 0x10; testData[9] = 0x20; testData[10] = 0x83;
             // Message
-            Array.Copy(messageBytes, 0, testData, 10, messageBytes.Length);
+            Array.Copy(messageBytes, 0, testData, 11, messageBytes.Length);
 
             _output.WriteLine($"Testing: {description}");
             _output.WriteLine($"Input: '{messageText}'");
@@ -206,8 +200,6 @@ namespace MeshCore.Net.SDK.Tests.Serialization
 
             Assert.Equal(expectedFromContactId, message.FromContactId);
             Assert.Equal(expectedContent, message.Content);
-
-            _output.WriteLine($"✅ {description} - parsed correctly");
         }
 
         /// <summary>
@@ -247,8 +239,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange
             var testData = new byte[]
             {
-                // V3 Header
-                0x11, 0x30, 0x00,
+                // Response code + V3 Header
+                0x11, 0x11, 0x30, 0x00,
                 // Channel message with variable channel index
                 channelIndex, 0x04, 0x00,
                 // Timestamp
@@ -266,10 +258,7 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             Assert.True(result);
             Assert.NotNull(message);
 
-            var expectedFromContactId = "User"; // Just the sender name from payload
-            var expectedToContactId = $"Channel_{channelIndex}";
-
-            Assert.Equal(expectedFromContactId, message.FromContactId);
+            Assert.Equal("User", message.FromContactId);
             Assert.Equal("Test", message.Content);
 
             _output.WriteLine($"✅ Channel {channelIndex} - parsed correctly");
@@ -288,8 +277,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange
             var testData = new byte[]
             {
-                // V3 Header
-                0x11, 0x30, 0x00,
+                // Response code + V3 Header
+                0x11, 0x11, 0x30, 0x00,
                 // Channel message with variable text type
                 0x00, 0x04, textType,
                 // Timestamp
@@ -320,16 +309,16 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange - Unicode message "Alice: Hello 世界 🌍"
             var messageText = "Alice: Hello 世界 🌍";
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(messageText);
-            var testData = new byte[10 + messageBytes.Length];
+            var testData = new byte[11 + messageBytes.Length];
 
-            // V3 Header
-            testData[0] = 0x11; testData[1] = 0x30; testData[2] = 0x00;
+            // Response code + V3 Header
+            testData[0] = 0x11; testData[1] = 0x11; testData[2] = 0x30; testData[3] = 0x00;
             // Channel info
-            testData[3] = 0x00; testData[4] = 0x04; testData[5] = 0x00;
+            testData[4] = 0x00; testData[5] = 0x04; testData[6] = 0x00;
             // Timestamp
-            testData[6] = 0x00; testData[7] = 0x10; testData[8] = 0x20; testData[9] = 0x83;
-            // Unicode message
-            Array.Copy(messageBytes, 0, testData, 10, messageBytes.Length);
+            testData[7] = 0x00; testData[8] = 0x10; testData[9] = 0x20; testData[10] = 0x83;
+            // Message
+            Array.Copy(messageBytes, 0, testData, 11, messageBytes.Length);
 
             _output.WriteLine($"Testing Unicode message: '{messageText}'");
             _output.WriteLine($"UTF-8 byte length: {messageBytes.Length}");
@@ -357,8 +346,8 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             // Arrange - Message with null terminators
             var testData = new byte[]
             {
-                // V3 Header
-                0x11, 0x30, 0x00,
+                // Response code + V3 Header
+                0x11, 0x11, 0x30, 0x00,
                 // Channel message
                 0x00, 0x04, 0x00,
                 // Timestamp
@@ -406,7 +395,7 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             var message = MessageChannelV3Serialization.Instance.Deserialize(ActualDebuggerChannelMessageV3);
 
             Assert.NotNull(message);
-            Assert.Equal("iBhamDin", message.FromContactId); // Just sender name from payload
+            Assert.Equal("iBhamDin", message.FromContactId);
             Assert.Equal("Test", message.Content);
 
             _output.WriteLine("✅ Deserialize method works with valid data");
@@ -449,7 +438,6 @@ namespace MeshCore.Net.SDK.Tests.Serialization
             public const string OriginalText = "iBhamDin: Test";
             public const string ParsedSender = "iBhamDin"; // Just sender name, no channel formatting
             public const string ParsedContent = "Test";
-            public const string ToContactId = "Channel_0";
             public const byte ChannelIndex = 0;
             public const uint Timestamp = 2208808704;
             public static readonly DateTime TimestampDateTime = DateTimeOffset.FromUnixTimeSeconds(Timestamp).DateTime;

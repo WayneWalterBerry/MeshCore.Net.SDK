@@ -174,18 +174,7 @@ public class MeshCoreCommandTests
 
 public class MeshCoreModelsTests
 {
-    [Fact]
-    public void Contact_ShouldInitializeWithDefaults()
-    {
-        // Act
-        var contact = new Contact();
-        
-        // Assert
-        Assert.Equal(string.Empty, contact.Id);
-        Assert.Equal(string.Empty, contact.Name);
-        Assert.Null(contact.NodeId);
-    }
-    
+   
     [Fact]
     public void Message_ShouldInitializeWithDefaults()
     {

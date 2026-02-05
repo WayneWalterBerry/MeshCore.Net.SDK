@@ -11,6 +11,11 @@ namespace MeshCore.Net.SDK.Models
     public enum NodeType : byte
     {
         /// <summary>
+        /// Indicates that the value is unknown or has not been specified.
+        /// </summary>
+        Unknown = 0,
+
+        /// <summary>
         /// Chat/Companion device (regular user device)
         /// </summary>
         Chat = 1,

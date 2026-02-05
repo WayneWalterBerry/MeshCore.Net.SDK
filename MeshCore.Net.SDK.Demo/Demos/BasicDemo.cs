@@ -140,12 +140,10 @@ public class BasicDemo
                 for (int i = 0; i < contacts.Count; i++)
                 {
                     var contact = contacts[i];
-                    var nodeIdPreview = contact.NodeId?.Length > 12 ? contact.NodeId[..12] + "..." : contact.NodeId ?? "N/A";
-                    var contactIdPreview = contact.Id?.Length > 12 ? contact.Id[..12] + "..." : contact.Id ?? "N/A";
+                    var publicKeyPreview = contact.PublicKey != null ? Convert.ToHexString(contact.PublicKey) : string.Empty;
                     
                     logger.LogInformation("[{ContactIndex:D2}] {ContactName}", i + 1, contact.Name);
-                    logger.LogInformation("       NodeID: {NodeId}", nodeIdPreview);
-                    logger.LogInformation("       Contact ID: {ContactId}", contactIdPreview);
+                    logger.LogInformation("       PublicKey: {PublicKey}", publicKeyPreview);
                 }
             }
             else

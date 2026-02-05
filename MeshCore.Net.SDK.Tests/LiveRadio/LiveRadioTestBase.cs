@@ -343,12 +343,12 @@ public abstract class LiveRadioTestBase : IDisposable
     /// Generates a test node ID for contact testing
     /// </summary>
     /// <returns>Random hex string for testing</returns>
-    protected static string GenerateTestNodeId()
+    protected static byte[] GeneratePublicKey()
     {
         var random = new Random();
         var bytes = new byte[16];
         random.NextBytes(bytes);
-        return Convert.ToHexString(bytes).ToLowerInvariant();
+        return bytes;
     }
 
     /// <summary>

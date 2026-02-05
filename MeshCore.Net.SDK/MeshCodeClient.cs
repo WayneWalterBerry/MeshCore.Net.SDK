@@ -144,7 +144,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static Task<List<MeshCoreDevice>> DiscoverDevicesAsync(TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>. Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
         logger.LogDeviceDiscoveryStarted("All");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("All");
 
@@ -156,7 +156,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static async Task<List<string>> DiscoverUsbDevicesAsync(ILoggerFactory? loggerFactory = null)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>. Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
         logger.LogDeviceDiscoveryStarted("USB");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("USB");
 
@@ -174,7 +174,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static Task<List<MeshCoreDevice>> DiscoverBluetoothDevicesAsync(TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>. Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
         logger.LogDeviceDiscoveryStarted("BluetoothLE");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("BluetoothLE");
 
@@ -364,7 +364,7 @@ public class MeshCodeClient : IDisposable
                     {
                         contacts.Add(contact);
 
-                        _logger.LogDebug("Parsed first contact: {ContactName} ({ContactId})", contact.Name, contact.Id);
+                        _logger.LogDebug("Parsed first contact: {ContactName} ({ContactId})", contact.Name, contact.PublicKey);
                     }
                 }
                 catch (Exception ex)
@@ -466,9 +466,9 @@ public class MeshCodeClient : IDisposable
     /// <summary>
     /// Adds a new contact
     /// </summary>
-    public async Task<Contact> AddContactAsync(string name, string nodeId)
+    public async Task<Contact> AddContactAsync(string name, byte[] publicKey)
     {
-        var data = Encoding.UTF8.GetBytes($"{name}\0{nodeId}");
+        var data = Encoding.UTF8.GetBytes($"{name}\0{publicKey}");
         var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_ADD_UPDATE_CONTACT, data);
 
         if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
@@ -483,19 +483,17 @@ public class MeshCodeClient : IDisposable
         // So we construct the Contact object from the input parameters
         return new Contact
         {
-            Id = nodeId,
             Name = name,
-            NodeId = nodeId
+            PublicKey = publicKey
         };
     }
 
     /// <summary>
     /// Deletes a contact
     /// </summary>
-    public async Task DeleteContactAsync(string contactId)
+    public async Task DeleteContactAsync(byte[] publicKey)
     {
-        var data = Encoding.UTF8.GetBytes(contactId);
-        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_REMOVE_CONTACT, data);
+        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_REMOVE_CONTACT, publicKey);
 
         if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
         {
@@ -989,79 +987,12 @@ public class MeshCodeClient : IDisposable
 
         // According to research: channels are stored in /channels2 file with up to 40 entries
         // Query channel indices 0-9 to see what's configured (limiting to first 10 for efficiency)
-        for (byte channelIndex = 0; channelIndex <= MeshCodeClient.MaxChannelsSupported; channelIndex++)
+        for (uint channelIndex = 0; channelIndex <= MeshCodeClient.MaxChannelsSupported; channelIndex++)
         {
-            try
+            var channel = await TryGetChannelAsync(channelIndex);
+            if (channel != null)
             {
-                _logger.LogDebug("Querying channel index {ChannelIndex} on device {DeviceId}", channelIndex, deviceId);
-
-                var channelIndexData = new byte[] { channelIndex };
-                var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_CHANNEL, channelIndexData);
-
-                var responseCode = response.GetResponseCode();
-
-                // Check for success responses
-                if (responseCode == MeshCoreResponseCode.RESP_CODE_CHANNEL_INFO ||
-                    responseCode == MeshCoreResponseCode.RESP_CODE_OK ||
-                    responseCode == MeshCoreResponseCode.RESP_CODE_DEVICE_INFO) // Sometimes channels return device info format
-                {
-                    // Parse channel info from response
-                    if (response.Payload.Length > 1)
-                    {
-                        Channel? channel;
-                        if (TryDeserializeChannel(response.Payload, out channel) && (channel != null))
-                        {
-                            result.Add(channel);
-
-                            _logger.LogInformation("Found channel at index {ChannelIndex}: '{ChannelName}' on device {DeviceId}",
-                                channelIndex, channel.Name, deviceId);
-                        }
-                    }
-                    else if (channelIndex == 0)
-                    {
-                        // Default public channel should always exist at index 0
-                        throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)MeshCoreStatus.InvalidCommand,
-                            $"Device {deviceId} does not support channel commands, but a public channel at index 0 is required by MeshCore protocol. This indicates a fundamental device compatibility issue.");
-                    }
-                }
-                else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
-                {
-                    var status = response.GetStatus();
-
-                    if (status == MeshCoreStatus.InvalidCommand && channelIndex == 0)
-                    {
-                        // Every MeshCore device must support channel queries and have a public channel at index 0
-                        throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)MeshCoreStatus.InvalidCommand,
-                            $"Device {deviceId} does not support channel commands, but every MeshCore device must support CMD_GET_CHANNEL and have a public channel at index 0. This indicates a fundamental device compatibility issue.");
-                    }
-                    else if (status == MeshCoreStatus.InvalidParameter || status?.ToString().Contains("NotFound") == true)
-                    {
-                        // Channel not found at this index - this is normal
-                        _logger.LogDebug("No channel configured at index {ChannelIndex} on device {DeviceId}", channelIndex, deviceId);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Error response for channel index {ChannelIndex} on device {DeviceId}: status {Status}",
-                            channelIndex, deviceId, status);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("Unexpected response code {ResponseCode} for channel index {ChannelIndex} on device {DeviceId}",
-                        responseCode, channelIndex, deviceId);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error querying channel index {ChannelIndex} on device {DeviceId}: {ErrorMessage}",
-                    channelIndex, deviceId, ex.Message);
-
-                // If this is index 0 and we get an error, assume it's the public channel
-                if (channelIndex == 0)
-                {
-                    throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)0x01,
-                        $"Device {deviceId} failed to respond to channel query for index 0 (public channel). Error: {ex.Message}. Every MeshCore device must have a public channel at index 0.");
-                }
+                result.Add(channel);
             }
         }
 
@@ -1069,6 +1000,99 @@ public class MeshCodeClient : IDisposable
             deviceId, result.Count, string.Join(", ", result.Select(kvp => $"{kvp.Index}={kvp.Name}")));
 
         return result;
+    }
+
+    /// <summary>
+    /// Attempts to retrieve the channel information for the specified channel index from the connected device
+    /// asynchronously.
+    /// </summary>
+    /// <remarks>If the device does not have a channel configured at the specified index, the method returns
+    /// <see langword="null"/>. All MeshCore devices are required to support channel queries and provide a public
+    /// channel at index 0; failure to do so results in a <see cref="ProtocolException"/>.</remarks>
+    /// <param name="channelIndex">The zero-based index of the channel to query. Index 0 refers to the public channel, which must be present on all
+    /// MeshCore devices.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the channel information if found;
+    /// otherwise, <see langword="null"/> if no channel is configured at the specified index.</returns>
+    /// <exception cref="ProtocolException">Thrown if the device does not support channel commands or fails to provide the required public channel at index
+    /// 0, indicating a device compatibility issue.</exception>
+    public async Task<Channel?> TryGetChannelAsync(uint channelIndex)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+
+        try
+        {
+            _logger.LogDebug("Querying channel index {ChannelIndex} on device {DeviceId}", channelIndex, deviceId);
+
+            var channelIndexData = new byte[] { (byte)channelIndex };
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_CHANNEL, channelIndexData);
+
+            var responseCode = response.GetResponseCode();
+
+            // Check for success responses
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_CHANNEL_INFO ||
+                responseCode == MeshCoreResponseCode.RESP_CODE_OK ||
+                responseCode == MeshCoreResponseCode.RESP_CODE_DEVICE_INFO) // Sometimes channels return device info format
+            {
+                // Parse channel info from response
+                if (response.Payload.Length > 1)
+                {
+                    Channel? channel;
+                    if (TryDeserializeChannel(response.Payload, out channel) && (channel != null))
+                    {
+                        _logger.LogInformation("Found channel at index {ChannelIndex}: '{ChannelName}' on device {DeviceId}",
+                            channelIndex, channel.Name, deviceId);
+
+                        return channel;
+                    }
+                }
+                else if (channelIndex == 0)
+                {
+                    // Default public channel should always exist at index 0
+                    throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)MeshCoreStatus.InvalidCommand,
+                        $"Device {deviceId} does not support channel commands, but a public channel at index 0 is required by MeshCore protocol. This indicates a fundamental device compatibility issue.");
+                }
+            }
+            else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
+            {
+                var status = response.GetStatus();
+
+                if (status == MeshCoreStatus.InvalidCommand && channelIndex == 0)
+                {
+                    // Every MeshCore device must support channel queries and have a public channel at index 0
+                    throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)MeshCoreStatus.InvalidCommand,
+                        $"Device {deviceId} does not support channel commands, but every MeshCore device must support CMD_GET_CHANNEL and have a public channel at index 0. This indicates a fundamental device compatibility issue.");
+                }
+                else if (status == MeshCoreStatus.InvalidParameter || status?.ToString().Contains("NotFound") == true)
+                {
+                    // Channel not found at this index - this is normal
+                    _logger.LogDebug("No channel configured at index {ChannelIndex} on device {DeviceId}", channelIndex, deviceId);
+                }
+                else
+                {
+                    _logger.LogDebug("Error response for channel index {ChannelIndex} on device {DeviceId}: status {Status}",
+                        channelIndex, deviceId, status);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("Unexpected response code {ResponseCode} for channel index {ChannelIndex} on device {DeviceId}",
+                    responseCode, channelIndex, deviceId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error querying channel index {ChannelIndex} on device {DeviceId}: {ErrorMessage}",
+                channelIndex, deviceId, ex.Message);
+
+            // If this is index 0 and we get an error, assume it's the public channel
+            if (channelIndex == 0)
+            {
+                throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CHANNEL, (byte)0x01,
+                    $"Device {deviceId} failed to respond to channel query for index 0 (public channel). Error: {ex.Message}. Every MeshCore device must have a public channel at index 0.");
+            }
+        }
+
+        return default(Channel);
     }
 
     #endregion
@@ -1206,7 +1230,7 @@ public class MeshCodeClient : IDisposable
                                     break;
                                 }
 
-                                _logger.LogDebug("Retrieved contact from {Id} for device {DeviceId}", contact.Id, deviceId);
+                                _logger.LogDebug("Retrieved contact from {PublicKey} for device {DeviceId}", contact.PublicKey, deviceId);
                                 ContactStatusChanged?.Invoke(this, contact);
                             }
                             catch (Exception parseEx)
@@ -1365,7 +1389,7 @@ public class MeshCodeClient : IDisposable
     /// <returns>Task representing the async operation</returns>
     /// <exception cref="ArgumentNullException">Thrown when advertisement is null</exception>
     /// <exception cref="ProtocolException">Thrown when the device returns an error or doesn't support advertising</exception>
-    public async Task SendSelfAdvertAsync(Advertisement advertisement)
+    private async Task SendSelfAdvertAsync(Advertisement advertisement)
     {
         if (advertisement == null)
             throw new ArgumentNullException(nameof(advertisement));
@@ -1475,6 +1499,482 @@ public class MeshCodeClient : IDisposable
         await SendSelfAdvertAsync(advertisement);
     }
 
+    /// <summary>
+    /// Gets the most recently observed advert path for a contact given its public key prefix.
+    /// </summary>
+    /// <param name="pubKeyPrefix">
+    /// The 6-byte public key prefix for the contact, as used by the MeshCore firmware
+    /// when matching entries in the advert path table.
+    /// </param>
+    /// <returns>
+    /// An <see cref="AdvertPathInfo"/> instance containing the received timestamp and hop
+    /// path from this node to the contact; or <c>null</c> if no path is known.
+    /// </returns>
+    /// <exception cref="ArgumentNullException">
+    /// Thrown when <paramref name="pubKeyPrefix"/> is <c>null</c>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="pubKeyPrefix"/> is not exactly 6 bytes long,
+    /// which is required by the MeshCore protocol.
+    /// </exception>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error response or an unexpected response code.
+    /// </exception>
+    public async Task<AdvertPathInfo?> TryGetAdvertPathAsync(byte[] pubKeyPrefix)
+    {
+        if (pubKeyPrefix == null)
+        {
+            throw new ArgumentNullException(nameof(pubKeyPrefix));
+        }
+
+        if (pubKeyPrefix.Length != 6)
+        {
+            throw new ArgumentException("Public key prefix must be exactly 6 bytes.", nameof(pubKeyPrefix));
+        }
+
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const byte reserved = 0x00;
+
+        // CMD_GET_ADVERT_PATH frame: [CMD_GET_ADVERT_PATH][reserved][pub_key_prefix(6)]
+        var payload = new byte[1 + pubKeyPrefix.Length];
+        payload[0] = reserved;
+        Buffer.BlockCopy(pubKeyPrefix, 0, payload, 1, pubKeyPrefix.Length);
+
+        _logger.LogDebug("Requesting advert path for contact prefix {Prefix} on device {DeviceId}",
+            BitConverter.ToString(pubKeyPrefix), deviceId);
+        MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, deviceId);
+
+        // Sent Command
+        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_ADVERT_PATH, payload);
+
+        var firstPayloadByte = response.Payload.FirstOrDefault();
+        _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, firstPayloadByte, deviceId);
+        MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, firstPayloadByte, deviceId);
+
+        var responseCode = response.GetResponseCode();
+
+        switch (responseCode)
+        {
+            case MeshCoreResponseCode.RESP_CODE_ADVERT_PATH:
+                { 
+                    try
+                    {
+                        var advertPath = AdvertPathSerialization.Instance.Deserialize(response.Payload);
+
+                        _logger.LogDebug(
+                            "Received advert path of length {PathLength} for contact prefix {Prefix} on device {DeviceId}",
+                            advertPath.Path.Length,
+                            BitConverter.ToString(pubKeyPrefix),
+                            deviceId);
+
+                        return advertPath;
+                    }
+                    catch (Exception ex)
+                    {
+                        var protoEx = new ProtocolException(
+                            (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH,
+                            0x01,
+                            $"Failed to parse advert path payload: {ex.Message}");
+
+                        _logger.LogProtocolError(protoEx, (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, 0x01);
+                        MeshCoreSdkEventSource.Log.ProtocolError(
+                            (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH,
+                            0x01,
+                            protoEx.Message);
+
+                        throw protoEx;
+                    }
+                }
+            case MeshCoreResponseCode.RESP_CODE_ERR:
+                {
+                    var status = response.GetStatus();
+                    var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                    if (statusByte == 0x02) // ERR_CODE_NOT_FOUND
+                    {
+                        _logger.LogDebug(
+                            "No advert path found for contact prefix {Prefix} on device {DeviceId}",
+                            BitConverter.ToString(pubKeyPrefix),
+                            deviceId);
+                        return null;
+                    }
+
+                    var errorMessage = status switch
+                    {
+                        MeshCoreStatus.InvalidCommand => "Get advert path command not supported by this device firmware",
+                        MeshCoreStatus.InvalidParameter => "Invalid public key prefix supplied for advert path query",
+                        MeshCoreStatus.DeviceError => "Device is in an error state and cannot provide advert path information",
+                        MeshCoreStatus.NetworkError => "Network error occurred while retrieving advert path",
+                        MeshCoreStatus.TimeoutError => "Timeout occurred while retrieving advert path",
+                        MeshCoreStatus.UnknownError => "Unknown error occurred while retrieving advert path",
+                        _ => $"Failed to get advert path (status: 0x{statusByte:X2})"
+                    };
+
+                    var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, statusByte, errorMessage);
+                    _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, statusByte);
+                    MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, statusByte, ex.Message);
+                    throw ex;
+                }
+
+            default:
+
+                var unexpected = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH,
+                    0x01,
+                    $"Unexpected response code {responseCode} for advert path request.");
+                _logger.LogProtocolError(unexpected, (byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, 0x01);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, 0x01, unexpected.Message);
+                throw unexpected;
+        }
+    }
+
+    #endregion
+
+    #region Auto-Add Contacts Operations
+
+    /// <summary>
+    /// Gets the raw auto-add configuration bitmask from the device as a strongly
+    /// typed set of <see cref="AutoAddConfigFlags"/>.
+    /// </summary>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result contains
+    /// the <see cref="AutoAddConfigFlags"/> value corresponding to the firmware
+    /// <c>_prefs.autoadd_config</c> bitmask.
+    /// </returns>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error or an unexpected response to the
+    /// auto-add configuration query.
+    /// </exception>
+    public async Task<AutoAddConfigFlags> GetAutoAddMaskAsync()
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(GetAutoAddMaskAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, deviceId);
+            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, deviceId);
+
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_AUTOADD_CONFIG);
+
+            _logger.LogResponseReceived(
+                (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived(
+                (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+
+            if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_AUTOADD_CONFIG)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var ex = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                    statusByte,
+                    $"Unexpected response code {response.GetResponseCode()} for auto-add configuration request.");
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError(
+                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                    statusByte,
+                    ex.Message);
+
+                throw ex;
+            }
+
+            if (response.Payload.Length < 2)
+            {
+                var ex = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                    0x01,
+                    "Auto-add configuration payload too short.");
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, 0x01);
+                MeshCoreSdkEventSource.Log.ProtocolError(
+                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
+                    0x01,
+                    ex.Message);
+
+                throw ex;
+            }
+
+            var rawMask = response.Payload[1];
+            var flags = (AutoAddConfigFlags)rawMask;
+
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogDebug(
+                "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. AutoAddMask=0x{Mask:X2}",
+                operationName,
+                deviceId,
+                (long)duration,
+                rawMask);
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+            return flags;
+        }
+        catch (Exception ex) when (!(ex is ProtocolException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sets the auto-add configuration on the device using a strongly typed
+    /// <see cref="AutoAddConfigFlags"/> bitmask.
+    /// </summary>
+    /// <param name="flags">
+    /// The <see cref="AutoAddConfigFlags"/> value to apply to the firmware
+    /// <c>_prefs.autoadd_config</c> field (for example, enabling Chat, Repeater,
+    /// RoomServer, Sensor and OverwriteOldest behavior).
+    /// </param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error or an unexpected response while applying
+    /// the configuration.
+    /// </exception>
+    public async Task SetAutoAddMaskAsync(AutoAddConfigFlags flags)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(SetAutoAddMaskAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug(
+            "Starting operation: {OperationName} for device: {DeviceId}, mask={Mask}",
+            operationName,
+            deviceId,
+            flags);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            var rawMask = (byte)flags;
+            var payload = new[] { rawMask };
+
+            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, deviceId);
+            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, deviceId);
+
+            var response = await _transport.SendCommandAsync(
+                MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
+                payload);
+
+            _logger.LogResponseReceived(
+                (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived(
+                (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+
+            if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var ex = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
+                    statusByte,
+                    "Failed to set auto-add configuration bitmask.");
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError(
+                    (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
+                    statusByte,
+                    ex.Message);
+
+                throw ex;
+            }
+
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogDebug(
+                "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. mask={Mask}",
+                operationName,
+                deviceId,
+                (long)duration,
+                flags);
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+        }
+        catch (Exception ex) when (!(ex is ProtocolException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Gets whether the device is configured to automatically add newly heard contacts
+    /// to its contacts list, based on the <c>_prefs.manual_add_contacts</c> flag.
+    /// </summary>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result is
+    /// <c>true</c> if auto-add is enabled; otherwise, <c>false</c>. The current
+    /// implementation assumes auto-add is enabled while device info parsing is
+    /// being stubbed.
+    /// </returns>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error or an unexpected response while reading
+    /// the device preferences.
+    /// </exception>
+    public async Task<bool> GetAutoAddEnabledAsync()
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(GetAutoAddEnabledAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
+            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
+
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, new byte[] { 0x08 });
+
+            _logger.LogResponseReceived(
+                (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived(
+                (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+
+            if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_DEVICE_INFO)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var ex = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
+                    statusByte,
+                    "Failed to read device preferences for auto-add state.");
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_DEVICE_QUERY, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError(
+                    (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
+                    statusByte,
+                    ex.Message);
+
+                throw ex;
+            }
+
+            // TODO: Parse manual_add_contacts from RESP_CODE_DEVICE_INFO payload when the
+            // device info serializer understands the full firmware layout.
+            var isAutoAddEnabled = true;
+
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogDebug(
+                "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. IsAutoAddEnabled={IsAutoAddEnabled}",
+                operationName,
+                deviceId,
+                (long)duration,
+                isAutoAddEnabled);
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+            return isAutoAddEnabled;
+        }
+        catch (Exception ex) when (!(ex is ProtocolException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sets whether the device should automatically add newly heard contacts to its
+    /// contacts list, by updating the <c>_prefs.manual_add_contacts</c> flag.
+    /// </summary>
+    /// <param name="enableAutoAdd">
+    /// When <c>true</c>, configures the device to enable auto-add (bit 0 of
+    /// <c>manual_add_contacts</c> cleared). When <c>false</c>, configures the device
+    /// for manual mode (bit 0 set).
+    /// </param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error or an unexpected response while applying
+    /// the configuration.
+    /// </exception>
+    public async Task SetAutoAddEnabledAsync(bool enableAutoAdd)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(SetAutoAddEnabledAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug(
+            "Starting operation: {OperationName} for device: {DeviceId}, enableAutoAdd={EnableAutoAdd}",
+            operationName,
+            deviceId,
+            enableAutoAdd);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            byte manualAddContacts = enableAutoAdd ? (byte)0x00 : (byte)0x01;
+            var payload = new[] { manualAddContacts };
+
+            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS, deviceId);
+            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS, deviceId);
+
+            var response = await _transport.SendCommandAsync(
+                MeshCoreCommand.CMD_SET_OTHER_PARAMS,
+                payload);
+
+            _logger.LogResponseReceived(
+                (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived(
+                (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
+                response.Payload.FirstOrDefault(),
+                deviceId);
+
+            if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var ex = new ProtocolException(
+                    (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
+                    statusByte,
+                    "Failed to apply manual/auto-add mode configuration.");
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError(
+                    (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
+                    statusByte,
+                    ex.Message);
+
+                throw ex;
+            }
+
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogDebug(
+                "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. enableAutoAdd={EnableAutoAdd}",
+                operationName,
+                deviceId,
+                (long)duration,
+                enableAutoAdd);
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+        }
+        catch (Exception ex) when (!(ex is ProtocolException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
     #endregion
 
     #region Private Methods
@@ -1556,8 +2056,8 @@ public class MeshCodeClient : IDisposable
                             contactCount++;
                             consecutiveErrors = 0;
 
-                            _logger.LogContactParsed(contact.Name, contact.NodeId ?? "Unknown");
-                            MeshCoreSdkEventSource.Log.ContactParsed(contact.Name, contact.NodeId ?? "Unknown");
+                            _logger.LogContactParsed(contact.Name, Convert.ToHexString(contact.PublicKey));
+                            MeshCoreSdkEventSource.Log.ContactParsed(contact.Name, Convert.ToHexString(contact.PublicKey));
                         }
                     }
                     catch (Exception ex)
@@ -1664,7 +2164,7 @@ public class MeshCodeClient : IDisposable
                             contactCount++;
                             consecutiveErrors = 0;
 
-                            _logger.LogDebug("Parsed contact: {ContactName} ({ContactId})", contact.Name, contact.Id);
+                            _logger.LogDebug("Parsed contact: {ContactName} ({ContactPublicKey})", contact.Name, contact.PublicKey);
                         }
                     }
                     catch (Exception ex)

@@ -205,12 +205,12 @@ public static partial class LoggerExtensions
     /// </summary>
     /// <param name="logger">The logger instance</param>
     /// <param name="contactName">The name of the parsed contact</param>
-    /// <param name="nodeId">The node identifier of the parsed contact</param>
+    /// <param name="publicKey">The Public Key of the Contact</param>
     [LoggerMessage(
         EventId = 3003,
         Level = LogLevel.Debug,
-        Message = "Contact parsed: Name={ContactName}, NodeId={NodeId}")]
-    public static partial void LogContactParsed(this ILogger logger, string contactName, string nodeId);
+        Message = "Contact parsed: Name={ContactName}, PublicKey={PublicKey}")]
+    public static partial void LogContactParsed(this ILogger logger, string contactName, string publicKey);
 
     /// <summary>
     /// Logs when contact parsing fails

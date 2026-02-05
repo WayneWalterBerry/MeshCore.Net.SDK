@@ -178,6 +178,59 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
         });
     }
 
+    /// <summary>
+    /// Test: Auto-add configuration round-trip (set/get)
+    /// </summary>
+    [Fact]
+    public async Task Test_07_AutoAddConfiguration_ShouldSetAndGetMaskSuccessfully()
+    {
+        await ExecuteStandardTest("Auto-Add Configuration", async () =>
+        {
+            // Arrange
+            var client = SharedClient!;
+            var deviceId = client.ConnectionId ?? "Unknown";
+
+            _output.WriteLine("🔧 Reading current auto-add configuration...");
+            var originalMask = await client.GetAutoAddMaskAsync();
+            _output.WriteLine($"   Original Auto-Add Mask: {originalMask}");
+
+            // Choose a test mask that enables overwrite + all known types
+            var testMask =
+                AutoAddConfigFlags.OverwriteOldest |
+                AutoAddConfigFlags.Chat |
+                AutoAddConfigFlags.Repeater |
+                AutoAddConfigFlags.RoomServer |
+                AutoAddConfigFlags.Sensor;
+
+            _output.WriteLine($"🧪 Setting test Auto-Add Mask: {testMask}");
+            await client.SetAutoAddMaskAsync(testMask);
+
+            // Act
+            var roundTrippedMask = await client.GetAutoAddMaskAsync();
+
+            _output.WriteLine($"🔁 Round-tripped Auto-Add Mask: {roundTrippedMask}");
+
+            // Assert
+            Assert.Equal(testMask, roundTrippedMask);
+
+            _output.WriteLine("✅ Auto-add configuration round-trip succeeded");
+
+            // Cleanup: best effort restore original mask
+            try
+            {
+                if (originalMask != roundTrippedMask)
+                {
+                    _output.WriteLine($"♻ Restoring original Auto-Add Mask for device {deviceId}: {originalMask}");
+                    await client.SetAutoAddMaskAsync(originalMask);
+                }
+            }
+            catch (Exception ex)
+            {
+                _output.WriteLine($"⚠️  Failed to restore original auto-add mask: {ex.Message}");
+            }
+        });
+    }
+
     #endregion
 
     #region Error Handling Tests
