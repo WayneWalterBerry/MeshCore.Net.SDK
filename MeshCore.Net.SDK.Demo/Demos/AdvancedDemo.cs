@@ -191,7 +191,7 @@ public class AdvancedDemo
                 var tasks = new List<Task>
                 {
                     ConcurrentOperation("GetDeviceInfo", () => client.GetDeviceInfoAsync(), logger),
-                    ConcurrentOperation("GetDeviceTime", () => client.GetDeviceTimeAsync(), logger),
+                    ConcurrentOperation("GetDeviceTime", () => client.TryGetDeviceTimeAsync(), logger),
                     ConcurrentOperation("GetNetworkStatus", () => client.GetNetworkStatusAsync(), logger),
                     ConcurrentOperation("GetConfiguration", () => client.GetBatteryAndStorageAsync(), logger)
                 };
@@ -270,7 +270,7 @@ public class AdvancedDemo
                 var operations = new Dictionary<string, Func<Task>>
                 {
                     ["GetDeviceInfo"] = async () => await client.GetDeviceInfoAsync(),
-                    ["GetDeviceTime"] = async () => await client.GetDeviceTimeAsync(),
+                    ["GetDeviceTime"] = async () => await client.TryGetDeviceTimeAsync(),
                     ["GetNetworkStatus"] = async () => await client.GetNetworkStatusAsync(),
                     ["GetConfiguration"] = async () => await client.GetBatteryAndStorageAsync()
                 };

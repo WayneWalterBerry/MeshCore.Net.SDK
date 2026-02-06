@@ -21,7 +21,7 @@ jobs:
         fetch-depth: 0 # Fetch all history for GitVersion
     
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotenv@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
     
@@ -31,8 +31,8 @@ jobs:
     - name: Build solution
       run: dotnet build --configuration Release --no-restore
     
-    - name: Run tests
-      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+    - name: Run tests (excluding hardware-dependent tests)
+      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage" --filter "Category!=LiveRadio"
     
     - name: Upload test results
       uses: actions/upload-artifact@v4
@@ -128,7 +128,7 @@ jobs:
         body: |
           ## MeshCore.Net.SDK ${{ steps.version.outputs.version }}
           
-          ### ?? Features
+          ### ? Features
           - Complete C# SDK for MeshCore devices
           - USB serial protocol implementation
           - Async/await support with modern C# patterns

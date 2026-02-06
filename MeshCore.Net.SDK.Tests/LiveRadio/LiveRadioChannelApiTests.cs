@@ -18,7 +18,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// NOTE: MeshCore protocol does NOT support channel deletion. Channels persist
 /// on the device until factory reset. Tests use unique naming to avoid conflicts.
 /// </summary>
-[Collection("SequentialTests")] // Ensures tests run sequentially to avoid COM port conflicts
+[Collection("LiveRadio")] // Ensures tests run sequentially to avoid COM port conflicts
 public class LiveRadioChannelApiTests : LiveRadioTestBase
 {
     private readonly List<string> _createdTestChannels = new();

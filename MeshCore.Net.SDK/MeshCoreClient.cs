@@ -271,7 +271,7 @@ public class MeshCoreClient : IDisposable
     public async Task SetDeviceTimeAsync(DateTime dateTime)
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
-        var timestamp = ((DateTimeOffset)dateTime).ToUnixTimeSeconds();
+        var timestamp = (uint)((DateTimeOffset)dateTime).ToUnixTimeSeconds();
         var data = BitConverter.GetBytes(timestamp);
 
         _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_DEVICE_TIME, deviceId);
@@ -298,14 +298,14 @@ public class MeshCoreClient : IDisposable
     /// <summary>
     /// Gets the device time
     /// </summary>
-    public async Task<DateTime> GetDeviceTimeAsync()
+    public async Task<DateTime?> TryGetDeviceTimeAsync(CancellationToken cancellationToken = default)
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
         _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, deviceId);
         MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, deviceId);
 
-        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_DEVICE_TIME);
+        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_DEVICE_TIME, cancellationToken: cancellationToken);
 
         _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
         MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
@@ -322,14 +322,21 @@ public class MeshCoreClient : IDisposable
             throw ex;
         }
 
-        var data = response.Payload;
-        if (data.Length >= 4)
-        {
-            var timestamp = BitConverter.ToInt32(data, 0);
-            return DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime;
-        }
+    var data = response.Payload;
+    if (data.Length >= 5) // Need at least 5 bytes: response code (1) + timestamp (4)
+    {
+        var timestamp = BitConverter.ToUInt32(data, 1); // Skip response code at offset 0
+        var deviceTime = DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime;
+        
+        // Log the raw hex data for debugging firmware time issues
+        var hex = BitConverter.ToString(data, 1, 4).Replace("-", string.Empty); // Skip response code
+        _logger.LogDebug("Device time raw payload: {Hex}, decoded timestamp: {Timestamp}, decoded time: {Time}", 
+            hex, timestamp, deviceTime);
+        
+        return deviceTime;
+    }
 
-        return DateTime.UtcNow;
+        return default(DateTime);
     }
 
     /// <summary>
@@ -2148,10 +2155,7 @@ public class MeshCoreClient : IDisposable
                     "Failed to set auto-add configuration bitmask.");
 
                 _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, statusByte);
-                MeshCoreSdkEventSource.Log.ProtocolError(
-                    (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
-                    statusByte,
-                    ex.Message);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, statusByte, ex.Message);
 
                 throw ex;
             }

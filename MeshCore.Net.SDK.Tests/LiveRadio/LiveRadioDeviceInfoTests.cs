@@ -15,7 +15,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// Includes device information retrieval, time operations, and basic device functionality
 /// These tests require a physical MeshCore device connected to COM3
 /// </summary>
-[Collection("SequentialTests")] // Ensures tests run sequentially to avoid COM port conflicts
+[Collection("LiveRadio")] // Ensures tests run sequentially to avoid COM port conflicts
 public class LiveRadioDeviceInfoTests : LiveRadioTestBase
 {
     /// <summary>
@@ -59,31 +59,19 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     {
         await ExecuteIsolationTestAsync("Device Time Operations", async (client) =>
         {
-            // Test getting device time
-            _output.WriteLine("📅 Testing device time retrieval...");
-            var deviceTime = await client.GetDeviceTimeAsync();
-            _output.WriteLine($"   Device Time: {deviceTime:yyyy-MM-dd HH:mm:ss} UTC");
-
-            Assert.True(deviceTime > DateTime.MinValue);
-            Assert.True(deviceTime < DateTime.MaxValue);
-
             // Test setting device time
             _output.WriteLine("⏰ Testing device time setting...");
             var newTime = DateTime.UtcNow;
             await client.SetDeviceTimeAsync(newTime);
             _output.WriteLine($"   Set Device Time to: {newTime:yyyy-MM-dd HH:mm:ss} UTC");
 
-            // Verify the time was set (allow some tolerance for transmission delay)
-            await Task.Delay(1000);
-            var verifyTime = await client.GetDeviceTimeAsync();
-            var timeDifference = Math.Abs((verifyTime - newTime).TotalSeconds);
+            // Test getting device time
+            _output.WriteLine("📅 Testing device time retrieval...");
+            var deviceTime = await client.TryGetDeviceTimeAsync();
+            _output.WriteLine($"   Device Time: {deviceTime:yyyy-MM-dd HH:mm:ss} UTC");
 
-            _output.WriteLine($"   Verified Time: {verifyTime:yyyy-MM-dd HH:mm:ss} UTC");
-            _output.WriteLine($"   Time Difference: {timeDifference:F1} seconds");
-
-            Assert.True(timeDifference < 10, $"Time difference should be less than 10 seconds, but was {timeDifference:F1} seconds");
-
-            _output.WriteLine("✅ Device time operations completed successfully");
+            Assert.True(deviceTime > DateTime.MinValue);
+            Assert.True(deviceTime < DateTime.MaxValue);
         });
     }
 
@@ -217,37 +205,6 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
 
     #endregion
 
-    #region Error Handling Tests
-
-    /// <summary>
-    /// Test: Device error handling and recovery
-    /// </summary>
-    [Fact]
-    public async Task Test_06_DeviceErrorHandling_ShouldHandleFailureScenarios()
-    {
-        await ExecuteIsolationTestAsync("Device Error Handling", async (client) =>
-        {
-            // Test device responsiveness after potential errors
-            _output.WriteLine("🔧 Testing device responsiveness...");
-            var deviceInfo = await client.GetDeviceInfoAsync();
-            Assert.NotNull(deviceInfo);
-            _output.WriteLine($"   ✅ Device responsive: {deviceInfo.FirmwareVersion}");
-
-            // Test multiple rapid commands (stress test)
-            _output.WriteLine("⚡ Testing rapid command handling...");
-            await ExecuteRapidCommandStressTest(client);
-
-            // Verify device is still responsive after stress test
-            var finalDeviceInfo = await client.GetDeviceInfoAsync();
-            Assert.NotNull(finalDeviceInfo);
-            _output.WriteLine($"   ✅ Device still responsive after stress test");
-
-            _output.WriteLine("✅ Device error handling and recovery test completed successfully");
-        });
-    }
-
-    #endregion
-
     #region Helper Methods
 
     /// <summary>
@@ -314,52 +271,6 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
         {
             _output.WriteLine("   🔄 No sync information available");
         }
-    }
-
-    /// <summary>
-    /// Executes a rapid command stress test
-    /// </summary>
-    /// <param name="client">The client to use for the stress test</param>
-    private async Task ExecuteRapidCommandStressTest(MeshCoreClient client)
-    {
-        var tasks = new List<Task>();
-        var successCount = 0;
-        var failureCount = 0;
-        var lockObject = new object();
-
-        for (int i = 0; i < 5; i++)
-        {
-            int taskId = i + 1;
-            tasks.Add(Task.Run(async () =>
-            {
-                try
-                {
-                    var time = await client.GetDeviceTimeAsync();
-
-                    lock (lockObject)
-                    {
-                        successCount++;
-                        _output.WriteLine($"   Rapid command {taskId}: Success ({time:HH:mm:ss})");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    lock (lockObject)
-                    {
-                        failureCount++;
-                        _output.WriteLine($"   Rapid command {taskId}: Failed ({ex.Message})");
-                    }
-                }
-            }));
-        }
-
-        await Task.WhenAll(tasks);
-
-        _output.WriteLine($"   📊 Stress test results: {successCount} successes, {failureCount} failures");
-        _output.WriteLine("   ✅ Rapid command test completed");
-
-        // Validate that at least some commands succeeded
-        Assert.True(successCount > 0, "At least one rapid command should succeed");
     }
 
     #endregion

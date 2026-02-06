@@ -115,7 +115,7 @@ public class BasicDemo
                 // Sync device time
                 logger.LogInformation("=== Time Synchronization ===");
                 await client.SetDeviceTimeAsync(DateTime.UtcNow);
-                var deviceTime = await client.GetDeviceTimeAsync();
+                var deviceTime = await client.TryGetDeviceTimeAsync();
                 logger.LogInformation("Device time: {DeviceTime:yyyy-MM-dd HH:mm:ss} UTC", deviceTime);
 
                 // Get network status

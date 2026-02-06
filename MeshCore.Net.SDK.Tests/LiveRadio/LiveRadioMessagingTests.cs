@@ -34,7 +34,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// - Device should be within radio range of the mesh network
 /// - Need correct CMD_SEND_CHANNEL_TXT_MSG payload format (TO BE RESEARCHED)
 /// </summary>
-[Collection("SequentialTests")] // Ensures tests run sequentially to avoid COM port conflicts
+[Collection("LiveRadio")]
 public class LiveRadioMessagingTests : LiveRadioTestBase
 {
     // Test constants
@@ -69,7 +69,6 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         await ExecuteIsolationTestAsync("Hashtag Channel Messaging Debug", async (client) =>
         {
             _output.WriteLine("GOAL: Debug SDK implementation of CMD_SEND_CHANNEL_TXT_MSG");
-            _output.WriteLine("STATUS: Currently fails with InvalidCommand - payload format issue");
             _output.WriteLine("");
 
             // Debug: Discover what channels are actually configured on the device
@@ -248,7 +247,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
         var commandTests = new List<(string name, Func<Task> test)>
         {
             ("Device Time", async () => {
-                var time = await client.GetDeviceTimeAsync();
+                var time = await client.TryGetDeviceTimeAsync();
                 _output.WriteLine($"   Device Time: {time:HH:mm:ss} UTC");
             }),
             ("Network Status", async () => {

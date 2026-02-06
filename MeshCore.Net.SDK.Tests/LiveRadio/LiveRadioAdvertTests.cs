@@ -8,7 +8,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// <summary>
 /// Live radio integration tests for self advertisement operations using a real MeshCore device.
 /// </summary>
-[Collection("SequentialTests")] // Match other live radio tests to avoid COM port conflicts
+[Collection("LiveRadio")] // Match other live radio tests to avoid COM port conflicts
 public class LiveRadioAdvertTests : LiveRadioTestBase
 {
     /// <summary>

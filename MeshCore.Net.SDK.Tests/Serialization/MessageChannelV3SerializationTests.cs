@@ -20,6 +20,7 @@ namespace MeshCore.Net.SDK.Tests.Serialization
     /// 
     /// Format: SNR(1) + reserved1(1) + reserved2(1) + channel_idx(1) + path_len(1) + txt_type(1) + timestamp(4) + text
     /// </summary>
+    [Collection("Serialization")]
     public class MessageChannelV3SerializationTests
     {
         private readonly ITestOutputHelper _output;
