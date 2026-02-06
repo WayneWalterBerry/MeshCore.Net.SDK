@@ -27,7 +27,7 @@ public class MeshCoreDiscoveryTest
         Assert.Equal(0x16, (byte)MeshCoreCommand.CMD_DEVICE_QUERY);
         Assert.Equal(0x02, (byte)MeshCoreCommand.CMD_SEND_TXT_MSG);
         Assert.Equal(0x03, (byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG);
-        Assert.Equal(0x04, (byte)MeshCoreCommand.CMD_GET_CONTACTS);
+        Assert.Equal(0x04, (byte)MeshCoreCommand.CMD_CONTACT_LIST_GET);
         Assert.Equal(0x05, (byte)MeshCoreCommand.CMD_GET_DEVICE_TIME);
         Assert.Equal(0x06, (byte)MeshCoreCommand.CMD_SET_DEVICE_TIME);
         Assert.Equal(0x19, (byte)MeshCoreCommand.CMD_REBOOT);

@@ -126,12 +126,13 @@ public class UsbTransport : ITransport
         var frameBytes = frame.ToByteArray();
         var portName = _serialPort.PortName;
 
-        _logger.LogTrace("Sending frame to {PortName}: StartByte={StartByte:X2}, Length={Length}, PayloadLength={PayloadLength}",
-            portName, frame.StartByte, frame.Length, frame.Payload.Length);
-
         await _writeLock.WaitAsync();
+
         try
         {
+            var hex = BitConverter.ToString(frameBytes).Replace("-", string.Empty);
+            _logger.LogInformation("Sending pkt {Hex} (len={Len})", hex, frame.Length);
+
             await _serialPort.BaseStream.WriteAsync(frameBytes, 0, frameBytes.Length);
             await _serialPort.BaseStream.FlushAsync();
 
@@ -173,6 +174,9 @@ public class UsbTransport : ITransport
         var payload = new byte[1 + data.Length];
         payload[0] = (byte)command;
         Array.Copy(data, 0, payload, 1, data.Length);
+
+        var hex = BitConverter.ToString(data).Replace("-", string.Empty);
+        _logger.LogInformation("Sending raw data: {CommandByte:X2}", (byte)command);
 
         var frame = MeshCoreFrame.CreateInbound(payload);
 
@@ -234,12 +238,12 @@ public class UsbTransport : ITransport
                     responseCode == MeshCoreResponseCode.RESP_CODE_DEVICE_INFO ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
-                MeshCoreCommand.CMD_GET_CONTACTS =>
+                MeshCoreCommand.CMD_CONTACT_LIST_GET =>
                     responseCode == MeshCoreResponseCode.RESP_CODE_CONTACTS_START ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
-                MeshCoreCommand.CMD_GET_CONTACT_BY_KEY => 
+                MeshCoreCommand.CMD_GET_CONTACT_BY_KEY =>
                     responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
@@ -409,7 +413,8 @@ public class UsbTransport : ITransport
                 var bytesRead = await _serialPort.BaseStream.ReadAsync(
                     buffer, 0, Math.Min(bytesToRead, buffer.Length), _cancellationTokenSource.Token);
 
-                _logger.LogTrace("Read {BytesRead} bytes from {PortName}", bytesRead, portName);
+                var hex = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", string.Empty);
+                _logger.LogDebug("Received data: {Data}", hex);
 
                 for (int i = 0; i < bytesRead; i++)
                 {

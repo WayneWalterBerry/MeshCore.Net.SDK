@@ -35,34 +35,19 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     #region Basic Device Info Tests
 
     /// <summary>
-    /// Test: Basic device connection functionality
-    /// </summary>
-    [Fact]
-    public async Task Test_01_DeviceConnection_ShouldConnectToCOM3Successfully()
-    {
-        await ExecuteDeviceConnectionTest();
-    }
-
-    /// <summary>
     /// Test: Device information retrieval
     /// </summary>
     [Fact]
     public async Task Test_02_GetDeviceInfo_ShouldReturnDeviceDetails()
     {
-        await ExecuteStandardTest("Get Device Info", async () =>
+        await ExecuteIsolationTestAsync("Get Device Info", async (client) =>
         {
-            var deviceInfo = await SharedClient!.GetDeviceInfoAsync();
+            var deviceInfo = await client.GetDeviceInfoAsync();
 
             Assert.NotNull(deviceInfo);
             Assert.NotNull(deviceInfo.DeviceId);
 
-            _output.WriteLine($"✅ Device Info Retrieved:");
-            _output.WriteLine($"   Device ID: {deviceInfo.DeviceId}");
-            _output.WriteLine($"   Firmware: {deviceInfo.FirmwareVersion}");
-            _output.WriteLine($"   Hardware: {deviceInfo.HardwareVersion}");
-            _output.WriteLine($"   Max Contacts: {deviceInfo.MaxContacts}");
-            _output.WriteLine($"   Max Group Channels: {deviceInfo.MaxGroupChannels}");
-            _output.WriteLine($"   Serial: {deviceInfo.SerialNumber}");
+            _output.WriteLine($"✅ Device Info Retrieved: {deviceInfo}");
         });
     }
 
@@ -72,11 +57,11 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     [Fact]
     public async Task Test_03_DeviceTimeOperations_ShouldHandleTimeGetAndSet()
     {
-        await ExecuteStandardTest("Device Time Operations", async () =>
+        await ExecuteIsolationTestAsync("Device Time Operations", async (client) =>
         {
             // Test getting device time
             _output.WriteLine("📅 Testing device time retrieval...");
-            var deviceTime = await SharedClient!.GetDeviceTimeAsync();
+            var deviceTime = await client.GetDeviceTimeAsync();
             _output.WriteLine($"   Device Time: {deviceTime:yyyy-MM-dd HH:mm:ss} UTC");
 
             Assert.True(deviceTime > DateTime.MinValue);
@@ -85,12 +70,12 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
             // Test setting device time
             _output.WriteLine("⏰ Testing device time setting...");
             var newTime = DateTime.UtcNow;
-            await SharedClient.SetDeviceTimeAsync(newTime);
+            await client.SetDeviceTimeAsync(newTime);
             _output.WriteLine($"   Set Device Time to: {newTime:yyyy-MM-dd HH:mm:ss} UTC");
 
             // Verify the time was set (allow some tolerance for transmission delay)
             await Task.Delay(1000);
-            var verifyTime = await SharedClient.GetDeviceTimeAsync();
+            var verifyTime = await client.GetDeviceTimeAsync();
             var timeDifference = Math.Abs((verifyTime - newTime).TotalSeconds);
 
             _output.WriteLine($"   Verified Time: {verifyTime:yyyy-MM-dd HH:mm:ss} UTC");
@@ -108,11 +93,11 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     [Fact]
     public async Task Test_04_GetBatteryAndStorage_ShouldRetrieveSettings()
     {
-        await ExecuteStandardTest("Battery and Storage Information", async () =>
+        await ExecuteIsolationTestAsync("Battery and Storage Information", async (client) =>
         {
             try
             {
-                var batteryAndStorage = await SharedClient!.GetBatteryAndStorageAsync();
+                var batteryAndStorage = await client.GetBatteryAndStorageAsync();
 
                 Assert.NotNull(batteryAndStorage);
 
@@ -159,9 +144,9 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     [Fact]
     public async Task Test_05_NetworkStatus_ShouldReturnConnectionInfo()
     {
-        await ExecuteStandardTest("Network Status", async () =>
+        await ExecuteIsolationTestAsync("Network Status", async (client) =>
         {
-            var networkStatus = await SharedClient!.GetNetworkStatusAsync();
+            var networkStatus = await client.GetNetworkStatusAsync();
 
             Assert.NotNull(networkStatus);
 
@@ -184,10 +169,9 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     [Fact]
     public async Task Test_07_AutoAddConfiguration_ShouldSetAndGetMaskSuccessfully()
     {
-        await ExecuteStandardTest("Auto-Add Configuration", async () =>
+        await ExecuteIsolationTestAsync("Auto-Add Configuration", async (client) =>
         {
             // Arrange
-            var client = SharedClient!;
             var deviceId = client.ConnectionId ?? "Unknown";
 
             _output.WriteLine("🔧 Reading current auto-add configuration...");
@@ -241,20 +225,20 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     [Fact]
     public async Task Test_06_DeviceErrorHandling_ShouldHandleFailureScenarios()
     {
-        await ExecuteStandardTest("Device Error Handling", async () =>
+        await ExecuteIsolationTestAsync("Device Error Handling", async (client) =>
         {
             // Test device responsiveness after potential errors
             _output.WriteLine("🔧 Testing device responsiveness...");
-            var deviceInfo = await SharedClient!.GetDeviceInfoAsync();
+            var deviceInfo = await client.GetDeviceInfoAsync();
             Assert.NotNull(deviceInfo);
             _output.WriteLine($"   ✅ Device responsive: {deviceInfo.FirmwareVersion}");
 
             // Test multiple rapid commands (stress test)
             _output.WriteLine("⚡ Testing rapid command handling...");
-            await ExecuteRapidCommandStressTest();
+            await ExecuteRapidCommandStressTest(client);
 
             // Verify device is still responsive after stress test
-            var finalDeviceInfo = await SharedClient.GetDeviceInfoAsync();
+            var finalDeviceInfo = await client.GetDeviceInfoAsync();
             Assert.NotNull(finalDeviceInfo);
             _output.WriteLine($"   ✅ Device still responsive after stress test");
 
@@ -335,7 +319,8 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     /// <summary>
     /// Executes a rapid command stress test
     /// </summary>
-    private async Task ExecuteRapidCommandStressTest()
+    /// <param name="client">The client to use for the stress test</param>
+    private async Task ExecuteRapidCommandStressTest(MeshCoreClient client)
     {
         var tasks = new List<Task>();
         var successCount = 0;
@@ -349,7 +334,7 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
             {
                 try
                 {
-                    var time = await SharedClient!.GetDeviceTimeAsync();
+                    var time = await client.GetDeviceTimeAsync();
 
                     lock (lockObject)
                     {
@@ -375,51 +360,6 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
 
         // Validate that at least some commands succeeded
         Assert.True(successCount > 0, "At least one rapid command should succeed");
-    }
-
-    #endregion
-
-    #region Custom Cleanup
-
-    /// <summary>
-    /// Performs custom cleanup for device info tests
-    /// </summary>
-    protected override void PerformCustomCleanup()
-    {
-        _output.WriteLine($"📟 Device Info Test Cleanup:");
-        _output.WriteLine($"   Device connection tests: Completed");
-        _output.WriteLine($"   Device information retrieval: Completed");
-        _output.WriteLine($"   Time operations: Completed");
-        _output.WriteLine($"   Battery and storage tests: Completed");
-        _output.WriteLine($"   Network status tests: Completed");
-        _output.WriteLine($"   Error handling tests: Completed");
-
-        // Final device status check
-        if (SharedClient?.IsConnected == true)
-        {
-            try
-            {
-                var deviceInfo = SharedClient.GetDeviceInfoAsync().Result;
-                _output.WriteLine($"   Final device status: {deviceInfo.FirmwareVersion}");
-            }
-            catch (Exception ex)
-            {
-                _output.WriteLine($"   Final device status: Error - {ex.Message}");
-            }
-        }
-        else
-        {
-            _output.WriteLine($"   Final device status: Disconnected");
-        }
-
-        _output.WriteLine($"📋 Device Info Test Summary:");
-        _output.WriteLine($"   • Basic device connectivity: ✅");
-        _output.WriteLine($"   • Device information APIs: ✅");
-        _output.WriteLine($"   • Time synchronization: ✅");
-        _output.WriteLine($"   • Battery monitoring: ✅");
-        _output.WriteLine($"   • Network status monitoring: ✅");
-        _output.WriteLine($"   • Error handling and recovery: ✅");
-        _output.WriteLine($"   • Stress testing: ✅");
     }
 
     #endregion

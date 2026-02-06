@@ -54,7 +54,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     {
         _output.WriteLine("Based on MeshCore Channel System Architecture Research");
         _output.WriteLine($"Default Public Channel Key: {DefaultPublicChannelKey}");
-        _output.WriteLine($"Max Channels: {MeshCodeClient.MaxChannelsSupported}, Record Size: {ChannelRecordSize} bytes");
+        _output.WriteLine($"Max Channels: {MeshCoreClient.MaxChannelsSupported}, Record Size: {ChannelRecordSize} bytes");
         _output.WriteLine($"⚠️  NOTE: Channel deletion NOT supported - using unique names (TestRun: {TestRunId})");
     }
 
@@ -70,24 +70,15 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     #region Basic Functional Tests
 
     /// <summary>
-    /// Test: Basic device connection functionality for channel operations
-    /// </summary>
-    [Fact]
-    public async Task Test_01_DeviceConnection_ShouldConnectToCOM3Successfully()
-    {
-        await ExecuteDeviceConnectionTest();
-    }
-
-    /// <summary>
     /// Test: Get current channel configuration and validate default "Public" channel
     /// Research shows all devices start with a default "Public" channel at index 0
     /// </summary>
     [Fact]
     public async Task Test_02_GetPublicChannelAsync_ShouldRetrievePublicChannel()
     {
-        await ExecuteStandardTest("Get Current Channel Configuration (Default Public)", async () =>
+        await ExecuteIsolationTestAsync("Get Current Channel Configuration (Default Public)", async (client) =>
         {
-            var channelInfo = await SharedClient!.GetPublicChannelAsync();
+            var channelInfo = await client.GetPublicChannelAsync();
 
             Assert.NotNull(channelInfo);
             _output.WriteLine($"✅ Current channel retrieved:");
@@ -129,16 +120,16 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_03_GetAvailableChannelsAsync_ShouldMapChannelIndicesToNames()
     {
-        await ExecuteStandardTest("Discover Device Channel Mapping (/channels2 file structure)", async () =>
+        await ExecuteIsolationTestAsync("Discover Device Channel Mapping (/channels2 file structure)", async (client) =>
         {
             try
             {
-                var channels = await SharedClient!.GetChannelsAsync();
+                var channels = await client.GetChannelsAsync();
 
                 Assert.NotNull(channels);
                 _output.WriteLine($"✅ Discovered {channels.Count()} channel index mappings:");
-                _output.WriteLine($"   Max supported by device: {MeshCodeClient.MaxChannelsSupported} channels");
-                _output.WriteLine($"   Storage usage: {channels.Count() * ChannelRecordSize} bytes of {MeshCodeClient.MaxChannelsSupported * ChannelRecordSize} bytes");
+                _output.WriteLine($"   Max supported by device: {MeshCoreClient.MaxChannelsSupported} channels");
+                _output.WriteLine($"   Storage usage: {channels.Count() * ChannelRecordSize} bytes of {MeshCoreClient.MaxChannelsSupported * ChannelRecordSize} bytes");
 
                 foreach (var kvp in channels)
                 {
@@ -159,9 +150,9 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 _output.WriteLine($"   ✅ Default channel at index 0: \"{channels.First().Index}\"");
 
                 // Validate storage constraints from research
-                if (channels.Count() > MeshCodeClient.MaxChannelsSupported)
+                if (channels.Count() > MeshCoreClient.MaxChannelsSupported)
                 {
-                    _output.WriteLine($"⚠️  Channel count ({channels.Count()}) exceeds documented maximum ({MeshCodeClient.MaxChannelsSupported})");
+                    _output.WriteLine($"⚠️  Channel count ({channels.Count()}) exceeds documented maximum ({MeshCoreClient.MaxChannelsSupported})");
                 }
 
                 _output.WriteLine($"✅ Channel index mapping discovery complete");
@@ -186,7 +177,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_04_CreatePrivateChannel_ShouldConfigureSecureChannel()
     {
-        await ExecuteStandardTest("Create Private Channel (Closed Mesh Network)", async () =>
+        await ExecuteIsolationTestAsync("Create Private Channel (Closed Mesh Network)", async (client) =>
         {
             var testChannelName = $"TeamAlpha_{TestRunId}";
             var testFrequency = 433000000; // 433 MHz - common LoRa frequency from research
@@ -205,7 +196,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 EncryptionKey = Convert.ToHexString(encryptionKey)
             };
 
-            var result = await SharedClient!.SetChannelAsync(channelConfig);
+            var result = await client.SetChannelAsync(channelConfig);
             _createdTestChannels.Add(result.Index.ToString());
 
             Assert.NotNull(result);
@@ -231,7 +222,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_05_ChannelNameValidation_ShouldEnforceStorageConstraints()
     {
-        await ExecuteStandardTest("Channel Name Validation (32-byte Storage Field)", async () =>
+        await ExecuteIsolationTestAsync("Channel Name Validation (32-byte Storage Field)", async (client) =>
         {
             var testCases = new[]
             {
@@ -261,7 +252,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                         IsEncrypted = false
                     };
 
-                    var result = await SharedClient!.SetChannelAsync(channelConfig);
+                    var result = await client.SetChannelAsync(channelConfig);
 
                     if (shouldSucceed)
                     {
@@ -297,7 +288,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_06_ChannelPSK_ShouldValidateKeyFormats()
     {
-        await ExecuteStandardTest("Channel PSK Validation (128-bit & 256-bit AES)", async () =>
+        await ExecuteIsolationTestAsync("Channel PSK Validation (128-bit & 256-bit AES)", async (client) =>
         {
             var testChannelName = $"PSKTest_{TestRunId}";
             var testFrequency = 433000000;
@@ -336,7 +327,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                         EncryptionKey = keyBytes.Length > 0 ? Convert.ToHexString(keyBytes) : ""
                     };
 
-                    var result = await SharedClient!.SetChannelAsync(channelConfig);
+                    var result = await client.SetChannelAsync(channelConfig);
 
                     if (shouldSucceed)
                     {
@@ -374,10 +365,10 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_07_ChannelFloodMessaging_ShouldUseGroupTextProtocol()
     {
-        await ExecuteStandardTest("Channel Flood Messaging (PAYLOAD_TYPE_GRP_TXT)", async () =>
+        await ExecuteIsolationTestAsync("Channel Flood Messaging (PAYLOAD_TYPE_GRP_TXT)", async (client) =>
         {
             // Get current channel for messaging
-            var currentChannel = await SharedClient!.GetPublicChannelAsync();
+            var currentChannel = await client.GetPublicChannelAsync();
             var targetChannelName = currentChannel?.Name ?? DefaultChannelName;
 
             _output.WriteLine($"   Target Channel: {targetChannelName}");
@@ -387,7 +378,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             var testMessage = $"Test flood message from SDK at {DateTime.Now:HH:mm:ss}";
             _output.WriteLine($"   Message: '{testMessage}'");
 
-            await SharedClient.SendChannelMessageAsync(targetChannelName, testMessage);
+            await client.SendChannelMessageAsync(targetChannelName, testMessage);
 
             _output.WriteLine($"✅ Channel message sent successfully");
             _output.WriteLine($"   📝 Research Note: Message propagates via repeater flood network-wide");
@@ -401,9 +392,9 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_08_ChannelMessageFormat_ShouldIncludeSenderName()
     {
-        await ExecuteStandardTest("Channel Message Format (SenderName: Message)", async () =>
+        await ExecuteIsolationTestAsync("Channel Message Format (SenderName: Message)", async (client) =>
         {
-            var currentChannel = await SharedClient!.GetPublicChannelAsync();
+            var currentChannel = await client.GetPublicChannelAsync();
             var targetChannelName = currentChannel?.Name ?? DefaultChannelName;
 
             var testMessages = new[]
@@ -424,7 +415,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 {
                     _output.WriteLine($"   Testing {testType} (length: {messageContent.Length})");
 
-                    await SharedClient.SendChannelMessageAsync(targetChannelName, messageContent);
+                    await client.SendChannelMessageAsync(targetChannelName, messageContent);
 
                     _output.WriteLine($"   ✅ {testType} message sent successfully");
 
@@ -454,7 +445,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_10_PrivateChannelIsolation_ShouldCreateClosedMesh()
     {
-        await ExecuteStandardTest("Private Channel Isolation (Closed Mesh Networks)", async () =>
+        await ExecuteIsolationTestAsync("Private Channel Isolation (Closed Mesh Networks)", async (client) =>
         {
             // Create two different private channels with different keys
             var channel1Name = $"SecureTeam1_{DateTime.Now:HHmmss}";
@@ -475,11 +466,11 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 EncryptionKey = Convert.ToHexString(key1)
             };
 
-            var channel1 = await SharedClient!.SetChannelAsync(channel1Config);
+            var channel1 = await client.SetChannelAsync(channel1Config);
             _createdTestChannels.Add(channel1.Index.ToString());
 
             // Send test message to first channel
-            await SharedClient.SendChannelMessageAsync(channel1Name, "Message for isolated network 1");
+            await client.SendChannelMessageAsync(channel1Name, "Message for isolated network 1");
             _output.WriteLine($"   ✅ Channel 1: {channel1Name} (isolated sub-network created)");
 
             // Create second private channel
@@ -491,11 +482,11 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 EncryptionKey = Convert.ToHexString(key2)
             };
 
-            var channel2 = await SharedClient.SetChannelAsync(channel2Config);
+            var channel2 = await client.SetChannelAsync(channel2Config);
             _createdTestChannels.Add(channel2.Index.ToString());
 
             // Send test message to second channel
-            await SharedClient.SendChannelMessageAsync(channel2Name, "Message for isolated network 2");
+            await client.SendChannelMessageAsync(channel2Name, "Message for isolated network 2");
             _output.WriteLine($"   ✅ Channel 2: {channel2Name} (isolated sub-network created)");
 
             _output.WriteLine($"✅ Successfully created two isolated private channels");
@@ -513,9 +504,9 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_11_PublicChannelSecurity_ShouldUseKnownKey()
     {
-        await ExecuteStandardTest("Public Channel Security (Known Default Key)", async () =>
+        await ExecuteIsolationTestAsync("Public Channel Security (Known Default Key)", async (client) =>
         {
-            var currentChannel = await SharedClient!.GetPublicChannelAsync();
+            var currentChannel = await client.GetPublicChannelAsync();
 
             _output.WriteLine($"   Research: Default public key = {DefaultPublicChannelKey}");
             _output.WriteLine($"   Hex equivalent: 8b3387e9c5cdea6ac9e5edbaa115cd72");
@@ -543,7 +534,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             if (currentChannel?.IsDefaultChannel == true)
             {
                 var testMessage = "Public channel test - non-sensitive data";
-                await SharedClient.SendChannelMessageAsync(currentChannel.Name, testMessage);
+                await client.SendChannelMessageAsync(currentChannel.Name, testMessage);
                 _output.WriteLine($"   ✅ Successfully sent message on public channel");
             }
         });
@@ -560,10 +551,10 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_12_MultiChannelOperation_ShouldManageMultipleChannels()
     {
-        await ExecuteStandardTest("Multi-Channel Operation (Concurrent Channel Management)", async () =>
+        await ExecuteIsolationTestAsync("Multi-Channel Operation (Concurrent Channel Management)", async (client) =>
         {
             // Get current channel list
-            var initialChannels = await SharedClient!.GetChannelsAsync();
+            var initialChannels = await client.GetChannelsAsync();
             _output.WriteLine($"   Initial channels: {initialChannels.Count()}");
 
             // Create multiple test channels
@@ -582,7 +573,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
 
                 testChannels.Add((channelName, channelConfig));
 
-                var result = await SharedClient.SetChannelAsync(channelConfig);
+                var result = await client.SetChannelAsync(channelConfig);
                 _createdTestChannels.Add(result.Index.ToString());
 
                 _output.WriteLine($"   ✅ Created channel {i}: {channelName}");
@@ -596,7 +587,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 try
                 {
                     var testMessage = $"Test message for {name}";
-                    await SharedClient.SendChannelMessageAsync(name, testMessage);
+                    await client.SendChannelMessageAsync(name, testMessage);
                     _output.WriteLine($"   ✅ Message sent to {name}");
 
                     await Task.Delay(200); // Avoid overwhelming device
@@ -608,7 +599,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             }
 
             // Verify final channel count
-            var finalChannels = await SharedClient.GetChannelsAsync();
+            var finalChannels = await client.GetChannelsAsync();
             var expectedCount = initialChannels.Count() + testChannels.Count;
 
             _output.WriteLine($"   Final channels: {finalChannels.Count()} (expected: {expectedCount})");
@@ -616,13 +607,13 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _output.WriteLine($"   📝 Limitation: Transmission is one channel at a time");
 
             // Validate storage constraints
-            if (finalChannels.Count() > MeshCodeClient.MaxChannelsSupported)
+            if (finalChannels.Count() > MeshCoreClient.MaxChannelsSupported)
             {
-                _output.WriteLine($"   ⚠️  Exceeded maximum supported channels ({MeshCodeClient.MaxChannelsSupported})");
+                _output.WriteLine($"   ⚠️  Exceeded maximum supported channels ({MeshCoreClient.MaxChannelsSupported})");
             }
             else
             {
-                _output.WriteLine($"   ✅ Within storage limits ({MeshCodeClient.MaxChannelsSupported} max)");
+                _output.WriteLine($"   ✅ Within storage limits ({MeshCoreClient.MaxChannelsSupported} max)");
             }
         });
     }
@@ -634,7 +625,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_13_ChannelPersistence_ShouldSurviveReconnection()
     {
-        await ExecuteStandardTest("Channel Persistence (/channels2 File & Lazy-Write)", async () =>
+        await ExecuteIsolationTestAsync("Channel Persistence (/channels2 File & Lazy-Write)", async (client) =>
         {
             // Create a persistent test channel
             var persistentChannelName = $"Persistent_{DateTime.Now:HHmmss}";
@@ -646,7 +637,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 EncryptionKey = Convert.ToHexString(GenerateChannelKey())
             };
 
-            var createdChannel = await SharedClient!.SetChannelAsync(channelConfig);
+            var createdChannel = await client.SetChannelAsync(channelConfig);
             _createdTestChannels.Add(createdChannel.Index.ToString());
 
             _output.WriteLine($"   Created persistent channel: {persistentChannelName}");
@@ -660,14 +651,14 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             // Disconnect and reconnect to simulate device restart
             _output.WriteLine($"   Simulating device restart (disconnect/reconnect)...");
 
-            SharedClient.Disconnect();
+            client.Disconnect();
 
             await Task.Delay(2000); // Wait for clean disconnect
 
-            await SharedClient.ConnectAsync();
+            await client.ConnectAsync();
 
             // Check if channel configuration persisted
-            var retrievedChannels = await SharedClient.GetChannelsAsync();
+            var retrievedChannels = await client.GetChannelsAsync();
             var persistedChannel = retrievedChannels.FirstOrDefault(c =>
                 c.Name.Equals(persistentChannelName, StringComparison.OrdinalIgnoreCase));
 
@@ -697,18 +688,18 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_14_ChannelStorageCapacity_ShouldEnforceLimit()
     {
-        await ExecuteStandardTest("Channel Storage Capacity (40 Channel Limit)", async () =>
+        await ExecuteIsolationTestAsync("Channel Storage Capacity (40 Channel Limit)", async (client) =>
         {
             // Get current channel count
-            var currentChannels = await SharedClient!.GetChannelsAsync();
+            var currentChannels = await client.GetChannelsAsync();
             var startingCount = currentChannels.Count();
 
             _output.WriteLine($"   Current channels: {startingCount}");
-            _output.WriteLine($"   Research limit: {MeshCodeClient.MaxChannelsSupported} channels");
-            _output.WriteLine($"   Available slots: {MeshCodeClient.MaxChannelsSupported - startingCount}");
+            _output.WriteLine($"   Research limit: {MeshCoreClient.MaxChannelsSupported} channels");
+            _output.WriteLine($"   Available slots: {MeshCoreClient.MaxChannelsSupported - startingCount}");
 
             // Test near-capacity behavior (create a few channels, not 40 to avoid long test)
-            var testChannelCount = Math.Min(3, MeshCodeClient.MaxChannelsSupported - startingCount);
+            var testChannelCount = Math.Min(3, MeshCoreClient.MaxChannelsSupported - startingCount);
 
             if (testChannelCount <= 0)
             {
@@ -731,7 +722,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                         IsEncrypted = false
                     };
 
-                    var result = await SharedClient.SetChannelAsync(channelConfig);
+                    var result = await client.SetChannelAsync(channelConfig);
                     _createdTestChannels.Add(result.Index.ToString());
 
                     _output.WriteLine($"   ✅ Created channel {i + 1}: {channelName}");
@@ -750,16 +741,16 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             }
 
             // Verify final count
-            var finalChannels = await SharedClient.GetChannelsAsync();
+            var finalChannels = await client.GetChannelsAsync();
             var totalCount = finalChannels.Count();
             var storageUsed = totalCount * ChannelRecordSize;
-            var maxStorage = MeshCodeClient.MaxChannelsSupported * ChannelRecordSize;
+            var maxStorage = MeshCoreClient.MaxChannelsSupported * ChannelRecordSize;
 
             _output.WriteLine($"   Final channel count: {totalCount}");
             _output.WriteLine($"   Storage used: {storageUsed} bytes of {maxStorage} bytes");
             _output.WriteLine($"   Storage efficiency: {(double)storageUsed / maxStorage * 100:F1}%");
 
-            if (totalCount <= MeshCodeClient.MaxChannelsSupported)
+            if (totalCount <= MeshCoreClient.MaxChannelsSupported)
             {
                 _output.WriteLine($"   ✅ Within documented limits");
             }
@@ -776,19 +767,19 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     [Fact]
     public async Task Test_15_ChannelErrorHandling_ShouldHandleFailureScenarios()
     {
-        await ExecuteStandardTest("Channel Error Handling (Comprehensive Scenarios)", async () =>
+        await ExecuteIsolationTestAsync("Channel Error Handling (Comprehensive Scenarios)", async (client) =>
         {
             // Test invalid frequency (negative)
-            await TestInvalidFrequency();
+            await TestInvalidFrequency(client);
 
             // Test sending message to non-existent channel
-            await TestNonExistentChannelMessaging();
+            await TestNonExistentChannelMessaging(client);
 
             // Test null message content
-            await TestNullMessageContent();
+            await TestNullMessageContent(client);
 
             // Test malformed encryption key
-            await TestMalformedEncryptionKey();
+            await TestMalformedEncryptionKey(client);
 
             _output.WriteLine("   📝 Research Note: Error handling protects channel storage integrity");
         });
@@ -813,7 +804,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     /// <summary>
     /// Tests invalid frequency handling
     /// </summary>
-    private async Task TestInvalidFrequency()
+    private async Task TestInvalidFrequency(MeshCoreClient client)
     {
         try
         {
@@ -824,7 +815,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 IsEncrypted = false
             };
 
-            await SharedClient!.SetChannelAsync(invalidConfig);
+            await client.SetChannelAsync(invalidConfig);
             _output.WriteLine("   ❌ Expected exception for invalid frequency was not thrown");
         }
         catch (ArgumentException)
@@ -840,11 +831,11 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     /// <summary>
     /// Tests messaging to non-existent channel
     /// </summary>
-    private async Task TestNonExistentChannelMessaging()
+    private async Task TestNonExistentChannelMessaging(MeshCoreClient client)
     {
         try
         {
-            await SharedClient!.SendChannelMessageAsync("NonExistentChannel_" + Guid.NewGuid(), "Test message");
+            await client.SendChannelMessageAsync("NonExistentChannel_" + Guid.NewGuid(), "Test message");
             _output.WriteLine("   ⚠️  Sending to non-existent channel did not throw exception");
         }
         catch (ProtocolException)
@@ -860,14 +851,14 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     /// <summary>
     /// Tests null message content handling
     /// </summary>
-    private async Task TestNullMessageContent()
+    private async Task TestNullMessageContent(MeshCoreClient client)
     {
         try
         {
-            var currentChannel = await SharedClient!.GetPublicChannelAsync();
+            var currentChannel = await client.GetPublicChannelAsync();
             var channelName = currentChannel?.Name ?? DefaultChannelName;
 
-            await SharedClient.SendChannelMessageAsync(channelName, null!);
+            await client.SendChannelMessageAsync(channelName, null!);
             _output.WriteLine("   ❌ Expected exception for null message was not thrown");
         }
         catch (ArgumentNullException)
@@ -883,7 +874,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     /// <summary>
     /// Tests malformed encryption key handling
     /// </summary>
-    private async Task TestMalformedEncryptionKey()
+    private async Task TestMalformedEncryptionKey(MeshCoreClient client)
     {
         try
         {
@@ -895,64 +886,13 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 EncryptionKey = "NOT_VALID_HEX"
             };
 
-            await SharedClient!.SetChannelAsync(malformedConfig);
+            await client.SetChannelAsync(malformedConfig);
             _output.WriteLine("   ⚠️  Malformed encryption key was accepted");
         }
         catch (Exception ex)
         {
             _output.WriteLine($"   ✅ Malformed encryption key properly rejected: {ex.GetType().Name}");
         }
-    }
-
-    #endregion
-
-    #region Custom Cleanup
-
-    /// <summary>
-    /// Performs custom cleanup for channel tests
-    /// </summary>
-    protected override void PerformCustomCleanup()
-    {
-        _output.WriteLine($"📻 Channel Test Cleanup:");
-        _output.WriteLine($"   Channels Created: {_createdTestChannels.Count}");
-
-        // Warning about channel persistence (no deletion support)
-        if (_createdTestChannels.Count > 0)
-        {
-            _output.WriteLine("");
-            _output.WriteLine("⚠️  CHANNEL PERSISTENCE WARNING");
-            _output.WriteLine("================================");
-            _output.WriteLine($"   Created {_createdTestChannels.Count} test channels during this run:");
-            foreach (var channelId in _createdTestChannels)
-            {
-                _output.WriteLine($"   📡 {channelId[..Math.Min(20, channelId.Length)]}...");
-            }
-            _output.WriteLine("");
-            _output.WriteLine("   🔒 MeshCore protocol does NOT support channel deletion");
-            _output.WriteLine("   📌 These channels will PERSIST on the device until factory reset");
-            _output.WriteLine("   💡 Future test runs use unique timestamps to avoid conflicts");
-            _output.WriteLine($"   🆔 This test run ID: {TestRunId}");
-            _output.WriteLine("");
-            _output.WriteLine("   To manage test channel accumulation:");
-            _output.WriteLine("   1. Use a dedicated test device for development");
-            _output.WriteLine("   2. Perform factory reset periodically to clear test channels");
-            _output.WriteLine("   3. Monitor channel count with Test_03_GetAvailableChannels");
-            _output.WriteLine($"   4. Device supports max {MeshCodeClient.MaxChannelsSupported} channels per research");
-            _output.WriteLine("");
-        }
-
-        _output.WriteLine($"📋 Channel Test Summary:");
-        _output.WriteLine($"   • Channel creation and configuration: Completed");
-        _output.WriteLine($"   • Channel name validation tests: Completed");
-        _output.WriteLine($"   • PSK validation tests: Completed");
-        _output.WriteLine($"   • Channel messaging tests: Completed");
-        _output.WriteLine($"   • Channel isolation tests: Completed");
-        _output.WriteLine($"   • Multi-channel operation tests: Completed");
-        _output.WriteLine($"   • Channel persistence tests: Completed");
-        _output.WriteLine($"   • Storage capacity tests: Completed");
-        _output.WriteLine($"   • Error handling tests: Completed");
-        _output.WriteLine($"   • Total channels created: {_createdTestChannels.Count}");
-        _output.WriteLine("📝 Research Reference: MeshCore Channel Deletion – Protocol Support and Implementation");
     }
 
     #endregion

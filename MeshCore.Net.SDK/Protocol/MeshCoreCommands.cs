@@ -23,7 +23,7 @@ public enum MeshCoreCommand : byte
     /// <summary>
     /// Get contacts list
     /// </summary>
-    CMD_GET_CONTACTS = 4,
+    CMD_CONTACT_LIST_GET = 4,
     
     /// <summary>
     /// Get current device time

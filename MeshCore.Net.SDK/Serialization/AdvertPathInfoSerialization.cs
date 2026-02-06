@@ -9,7 +9,7 @@ namespace MeshCore.Net.SDK.Serialization
     /// <summary>
     /// Binary serializer for <see cref="OutboundRoute"/> instances using the MeshCore advert path wire format.
     /// </summary>
-    public sealed class AdvertPathInfoSerialization : IBinarySerializer<AdvertPathInfo>, IBinaryDeserializer<AdvertPathInfo>
+    public sealed class AdvertPathInfoSerialization : IBinaryDeserializer<AdvertPathInfo>
     {
         private static readonly Lazy<AdvertPathInfoSerialization> _instance = new(() => new AdvertPathInfoSerialization());
 
@@ -54,55 +54,45 @@ namespace MeshCore.Net.SDK.Serialization
                 return false;
             }
 
-            if (data.Length < 5)
+            // Expected format from firmware: [RESP_CODE][recv_timestamp:4][path_len:1][path_data:path_len]
+            // Minimum length: response code + timestamp + path_len = 6 bytes
+            if (data.Length < 6)
             {
                 return false;
             }
 
-            var timestamp = BitConverter.ToUInt32(data, 0);
-            var pathLen = data[4];
+            // Read timestamp from bytes 1-4 (little-endian)
+            var timestamp = BitConverter.ToUInt32(data, 1);
+            
+            // Read path length from byte 5
+            var pathLen = data[5];
 
-            if (data.Length < 5 + pathLen)
+            // Validate we have enough data: response code + timestamp + path_len + actual path data
+            if (data.Length < 6 + pathLen)
             {
-                throw new ArgumentException("Advert path payload is shorter than indicated path length.", nameof(data));
+                throw new ArgumentException($"Advert path payload is shorter than indicated path length. Expected at least {6 + pathLen} bytes, got {data.Length} bytes.", nameof(data));
             }
 
+            // Extract path data starting from byte 6
             var path = new byte[pathLen];
-            Buffer.BlockCopy(data, 5, path, 0, pathLen);
+            if (pathLen > 0)
+            {
+                Buffer.BlockCopy(data, 6, path, 0, pathLen);
+            }
+
+            DateTime receivedTimestamp = DateTime.UnixEpoch;
+            if (timestamp != 0)
+            {
+                receivedTimestamp = DateTimeOffset.FromUnixTimeSeconds(timestamp).UtcDateTime;
+            }
 
             result = new AdvertPathInfo
             {
-                ReceivedTimestamp = timestamp,
+                ReceivedTimestamp = receivedTimestamp,
                 Path = path
             };
 
             return true;
-        }
-
-        /// <inheritdoc />
-        public byte[] Serialize(AdvertPathInfo value)
-        {
-            if (value == null)
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
-
-            var path = value.Path ?? Array.Empty<byte>();
-            if (path.Length > byte.MaxValue)
-            {
-                throw new ArgumentException("Advert path length cannot exceed 255 bytes.", nameof(value));
-            }
-
-            var buffer = new byte[5 + path.Length];
-            var timestampBytes = BitConverter.GetBytes(value.ReceivedTimestamp);
-            Buffer.BlockCopy(timestampBytes, 0, buffer, 0, 4);
-            buffer[4] = (byte)path.Length;
-            if (path.Length > 0)
-            {
-                Buffer.BlockCopy(path, 0, buffer, 5, path.Length);
-            }
-
-            return buffer;
         }
     }
 }

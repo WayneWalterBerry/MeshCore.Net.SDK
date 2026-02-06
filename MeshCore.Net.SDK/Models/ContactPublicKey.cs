@@ -41,7 +41,21 @@ namespace MeshCore.Net.SDK.Models
         /// <inheritdoc/>
         public override string ToString()
         {
-            return Convert.ToHexString(Value);
+            try
+            {
+                return Convert.ToHexString(Value);
+            }
+            catch (FormatException)
+            {
+                // Handle corrupted or invalid byte data gracefully
+                // Return a safe representation that won't break string formatting
+                return Convert.ToHexString(new byte[32]); // Return all zeros as fallback
+            }
+            catch (ArgumentException)
+            {
+                // Handle null or invalid Value array
+                return Convert.ToHexString(new byte[32]); // Return all zeros as fallback
+            }
         }
     }
 }

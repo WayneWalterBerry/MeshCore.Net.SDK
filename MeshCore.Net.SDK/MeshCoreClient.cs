@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Collections.Concurrent;
+using System.Text;
 using System.Threading;
 using MeshCore.Net.SDK.Exceptions;
 using MeshCore.Net.SDK.Logging;
@@ -15,7 +16,7 @@ namespace MeshCore.Net.SDK;
 /// <summary>
 /// Main client for interacting with MeshCore devices via USB or Bluetooth
 /// </summary>
-public class MeshCodeClient : IDisposable
+public class MeshCoreClient : IDisposable
 {
     /// <summary>
     /// Maximum number of channels supported by the MeshCore device
@@ -23,7 +24,7 @@ public class MeshCodeClient : IDisposable
     public const int MaxChannelsSupported = 40;
 
     private readonly ITransport _transport;
-    private readonly ILogger<MeshCodeClient> _logger;
+    private readonly ILogger<MeshCoreClient> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private bool _disposed;
 
@@ -64,11 +65,11 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     /// <param name="transport">The transport layer to use for communication</param>
     /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
-    public MeshCodeClient(ITransport transport, ILoggerFactory? loggerFactory = null)
+    private MeshCoreClient(ITransport transport, ILoggerFactory? loggerFactory = null)
     {
         _transport = transport;
         _loggerFactory = loggerFactory;
-        _logger = _loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
+        _logger = _loggerFactory?.CreateLogger<MeshCoreClient>() ?? NullLogger<MeshCoreClient>.Instance;
 
         _transport.ErrorOccurred += OnTransportError;
 
@@ -84,7 +85,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     /// <param name="device">The MeshCore device to connect to</param>
     /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
-    public MeshCodeClient(MeshCoreDevice device, ILoggerFactory? loggerFactory = null)
+    private MeshCoreClient(MeshCoreDevice device, ILoggerFactory? loggerFactory = null)
         : this(TransportFactory.CreateTransport(device), loggerFactory)
     {
     }
@@ -94,9 +95,39 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     /// <param name="connectionString">Connection string specifying the device (e.g., "COM3")</param>
     /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
-    public MeshCodeClient(string connectionString, ILoggerFactory? loggerFactory = null)
+    private MeshCoreClient(string connectionString, ILoggerFactory? loggerFactory = null)
         : this(TransportFactory.CreateTransport(connectionString), loggerFactory)
     {
+    }
+
+    /// <summary>
+    /// Establishes an asynchronous connection to the specified MeshCoreDevice and returns a MeshCodeClient instance for
+    /// communication.
+    /// </summary>
+    /// <param name="transport">The transport layer to use for communication</param>
+    /// <param name="loggerFactory">An optional ILoggerFactory used to create loggers for the client. If null, logging is disabled.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains a MeshCodeClient instance connected
+    /// to the specified device.</returns>
+    public static async Task<MeshCoreClient> ConnectAsync(ITransport transport, ILoggerFactory? loggerFactory = null)
+    {
+        MeshCoreClient meshCoreClient = new MeshCoreClient(transport, loggerFactory);
+        await meshCoreClient.ConnectAsync();
+        return meshCoreClient;
+    }
+
+    /// <summary>
+    /// Establishes an asynchronous connection to the specified MeshCoreDevice and returns a MeshCodeClient instance for
+    /// communication.
+    /// </summary>
+    /// <param name="device">The MeshCoreDevice to connect to. Cannot be null.</param>
+    /// <param name="loggerFactory">An optional ILoggerFactory used to create loggers for the client. If null, logging is disabled.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains a MeshCodeClient instance connected
+    /// to the specified device.</returns>
+    public static async Task<MeshCoreClient> ConnectAsync(MeshCoreDevice device, ILoggerFactory? loggerFactory = null)
+    {
+        MeshCoreClient meshCoreClient = new MeshCoreClient(device, loggerFactory);
+        await meshCoreClient.ConnectAsync();
+        return meshCoreClient;
     }
 
     /// <summary>
@@ -145,7 +176,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static Task<List<MeshCoreDevice>> DiscoverDevicesAsync(TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCoreClient>() ?? NullLogger<MeshCoreClient>.Instance;
         logger.LogDeviceDiscoveryStarted("All");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("All");
 
@@ -157,7 +188,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static async Task<List<string>> DiscoverUsbDevicesAsync(ILoggerFactory? loggerFactory = null, CancellationToken cancellationToken = default)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCoreClient>() ?? NullLogger<MeshCoreClient>.Instance;
         logger.LogDeviceDiscoveryStarted("USB");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("USB");
 
@@ -175,7 +206,7 @@ public class MeshCodeClient : IDisposable
     /// </summary>
     public static Task<List<MeshCoreDevice>> DiscoverBluetoothDevicesAsync(TimeSpan? timeout = null, ILoggerFactory? loggerFactory = null)
     {
-        var logger = loggerFactory?.CreateLogger<MeshCodeClient>() ?? NullLogger<MeshCodeClient>.Instance;
+        var logger = loggerFactory?.CreateLogger<MeshCoreClient>() ?? NullLogger<MeshCoreClient>.Instance;
         logger.LogDeviceDiscoveryStarted("BluetoothLE");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("BluetoothLE");
 
@@ -323,10 +354,39 @@ public class MeshCodeClient : IDisposable
     #region Contact Operations
 
     /// <summary>
-    /// Gets all contacts
+    /// 
     /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
     public async Task<IEnumerable<Contact>> GetContactsAsync(CancellationToken cancellationToken)
     {
+        ConcurrentBag<Contact> contacts = new ConcurrentBag<Contact>();
+
+        void OnContactReceived(object? sender, Contact contact)
+        {
+            contacts.Add(contact);
+        };
+
+        ContactStatusChanged += OnContactReceived;
+
+        try
+        {
+            await GetContactListAsync(cancellationToken);
+        }
+        finally
+        {
+            ContactStatusChanged -= OnContactReceived;
+        }
+
+        return contacts.ToList();
+    }
+
+    /// <summary>
+    /// Gets all contacts
+    /// </summary>
+    private async Task GetContactListAsync(CancellationToken cancellationToken)
+    {
+        uint lastmod = 0;
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
         _logger.LogContactRetrievalStarted(deviceId);
@@ -334,118 +394,136 @@ public class MeshCodeClient : IDisposable
 
         try
         {
-            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_CONTACTS, cancellationToken: cancellationToken);
-            var responseCode = response.GetResponseCode();
-
-            _logger.LogDebug("Initial contact response: {ResponseCode} for device {DeviceId}", responseCode, deviceId);
-
-            // Handle different protocol variations for contact retrieval
-            if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACTS_START)
+            do
             {
-                // Standard protocol: CONTACTS_START -> CONTACT... -> END_OF_CONTACTS
-                var contacts = (await ParseContactsSequenceAsync(response.Payload, cancellationToken)).ToList();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                _logger.LogContactRetrievalCompleted(deviceId, contacts.Count);
-                MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, contacts.Count);
-
-                return contacts;
-            }
-            else if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT)
-            {
-                // Alternative protocol: Direct CONTACT response (single contact or first of many)
-                _logger.LogDebug("Device {DeviceId} using direct contact response protocol", deviceId);
-
-                var contacts = new List<Contact>();
-
-                // Parse the first contact from the initial response
-                try
+                byte[]? payload = null;
+                if (lastmod != 0)
                 {
-                    Contact? contact;
-                    if (TryDeserializeContact(response.Payload, out contact) && (contact != null))
-                    {
-                        contacts.Add(contact);
+                    payload = BitConverter.GetBytes(lastmod);
+                }
 
-                        _logger.LogDebug("Parsed first contact: {ContactName} ({ContactId})", contact.Name, contact.PublicKey);
+                var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_CONTACT_LIST_GET, payload, cancellationToken);
+                var responseCode = response.GetResponseCode();
+                var status = response.GetStatus();
+
+                // Handle different protocol variations for contact retrieval
+                if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACTS_START)
+                {
+                    // Bytes [1..4] are the total contacts count as a little-endian uint32.
+                    var totalCount = BitConverter.ToUInt32(response.Payload, 1);
+
+                    _logger.LogDebug("Device {DeviceId} using standard contact retrieval protocol with total count: {TotalCount}", deviceId, totalCount);
+
+                    // Standard protocol: CONTACTS_START -> CONTACT... -> END_OF_CONTACTS
+                    lastmod = await ParseContactsSequenceAsync(cancellationToken);
+
+                    _logger.LogContactRetrievalCompleted(deviceId);
+                    MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+
+                    if (lastmod == 0)
+                    {
+                        return;
                     }
                 }
-                catch (Exception ex)
+                else if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT)
                 {
-                    _logger.LogWarning(ex, "Failed to parse initial contact from device {DeviceId}", deviceId);
+                    // Alternative protocol: Direct CONTACT response (single contact or first of many)
+                    _logger.LogDebug("Device {DeviceId} using direct contact response protocol", deviceId);
+
+                    // Parse the first contact from the initial response
+                    try
+                    {
+                        Contact? contact;
+                        if (TryDeserializeContact(response.Payload, out contact) && (contact != null))
+                        {
+                            _logger.LogContactParsed(contact.Name, contact.PublicKey.ToString());
+                            MeshCoreSdkEventSource.Log.ContactParsed(contact.Name, contact.PublicKey.ToString());
+
+                            _logger.LogDebug($"Dispatching contact: {contact}");
+
+                            ContactStatusChanged?.Invoke(this, contact);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Received contact response could not be parsed for device {DeviceId}", deviceId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogContactParsingFailed(ex);
+                        MeshCoreSdkEventSource.Log.ContactParsingFailed(ex.Message);
+                    }
+
+                    // Continue retrieving additional contacts using SYNC_NEXT_MESSAGE
+                    await ParseContactsSequenceAsync(cancellationToken);
+
+                    _logger.LogContactRetrievalCompleted(deviceId);
+                    MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
                 }
-
-                // Continue retrieving additional contacts using SYNC_NEXT_MESSAGE
-                await ContinueParsingContacts(contacts, deviceId);
-
-                _logger.LogContactRetrievalCompleted(deviceId, contacts.Count);
-                MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, contacts.Count);
-
-                return contacts;
-            }
-            else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
-            {
-                // Handle error responses
-                var status = response.GetStatus();
-                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
-
-                switch (statusByte)
+                else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
                 {
-                    case (byte)MeshCoreStatus.InvalidParameter:
-                        _logger.LogInformation("Device {DeviceId} reports no contacts available (empty contact list)", deviceId);
-                        var emptyList = new List<Contact>();
-                        _logger.LogContactRetrievalCompleted(deviceId, emptyList.Count);
-                        MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, emptyList.Count);
-                        return emptyList;
+                    // Handle error responses
+                    var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
 
-                    case (byte)MeshCoreStatus.InvalidCommand:
-                        _logger.LogWarning("Device {DeviceId} does not support contact operations", deviceId);
-                        throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CONTACTS, statusByte,
-                            "Get contacts command not supported by this device firmware");
+                    _logger.LogDebug("Device {DeviceId} returned RESP_CODE_ERR for contacts with status {StatusByte} ({Status})", deviceId, statusByte, status?.ToString() ?? "null");
 
-                    case (byte)MeshCoreStatus.DeviceError:
-                        _logger.LogWarning("Device {DeviceId} is in an error state for contact operations", deviceId);
-                        // Return empty list for device errors as this might be recoverable
-                        var deviceErrorEmptyList = new List<Contact>();
-                        _logger.LogContactRetrievalCompleted(deviceId, deviceErrorEmptyList.Count);
-                        MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, deviceErrorEmptyList.Count);
-                        return deviceErrorEmptyList;
+                    switch (statusByte)
+                    {
+                        case (byte)MeshCoreStatus.InvalidParameter:
+                            _logger.LogInformation("Device {DeviceId} reports no contacts available (empty contact list)", deviceId);
+                            _logger.LogContactRetrievalCompleted(deviceId);
+                            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+                            return;
 
-                    case (byte)MeshCoreStatus.NetworkError:
-                        _logger.LogWarning("Device {DeviceId} has a network error for contact operations", deviceId);
-                        // Return empty list for network errors as this might be recoverable
-                        var networkErrorEmptyList = new List<Contact>();
-                        _logger.LogContactRetrievalCompleted(deviceId, networkErrorEmptyList.Count);
-                        MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, networkErrorEmptyList.Count);
-                        return networkErrorEmptyList;
+                        case (byte)MeshCoreStatus.InvalidCommand:
+                            _logger.LogWarning("Device {DeviceId} does not support contact operations", deviceId);
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_CONTACT_LIST_GET, statusByte,
+                                "Get contacts command not supported by this device firmware");
 
-                    case (byte)MeshCoreStatus.TimeoutError:
-                        _logger.LogWarning("Device {DeviceId} has a timeout error for contact operations", deviceId);
-                        // Return empty list for timeout errors as this might be recoverable
-                        var timeoutErrorEmptyList = new List<Contact>();
-                        _logger.LogContactRetrievalCompleted(deviceId, timeoutErrorEmptyList.Count);
-                        MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, timeoutErrorEmptyList.Count);
-                        return timeoutErrorEmptyList;
+                        case (byte)MeshCoreStatus.DeviceError:
+                            _logger.LogWarning("Device {DeviceId} is in an error state for contact operations", deviceId);
+                            // Return empty list for device errors as this might be recoverable
+                            _logger.LogContactRetrievalCompleted(deviceId);
+                            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+                            return;
 
-                    case (byte)MeshCoreStatus.UnknownError:
-                        _logger.LogWarning("Device {DeviceId} has an unknown error for contact operations", deviceId);
-                        // Return empty list for unknown errors as this might be recoverable
-                        var unknownErrorEmptyList = new List<Contact>();
-                        _logger.LogContactRetrievalCompleted(deviceId, unknownErrorEmptyList.Count);
-                        MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, unknownErrorEmptyList.Count);
-                        return unknownErrorEmptyList;
+                        case (byte)MeshCoreStatus.NetworkError:
+                            _logger.LogWarning("Device {DeviceId} has a network error for contact operations", deviceId);
+                            // Return empty list for network errors as this might be recoverable
+                            _logger.LogContactRetrievalCompleted(deviceId);
+                            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+                            return;
 
-                    default:
-                        _logger.LogWarning("Device {DeviceId} returned error for contacts with status {Status}", deviceId, statusByte);
-                        throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CONTACTS, statusByte,
-                            $"Device returned error status {statusByte} for contact retrieval");
+                        case (byte)MeshCoreStatus.TimeoutError:
+                            _logger.LogWarning("Device {DeviceId} has a timeout error for contact operations", deviceId);
+                            // Return empty list for timeout errors as this might be recoverable
+                            _logger.LogContactRetrievalCompleted(deviceId);
+                            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+                            return;
+
+                        case (byte)MeshCoreStatus.UnknownError:
+                            _logger.LogWarning("Device {DeviceId} has an unknown error for contact operations", deviceId);
+                            // Return empty list for unknown errors as this might be recoverable
+                            _logger.LogContactRetrievalCompleted(deviceId);
+                            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+                            return;
+
+                        default:
+                            _logger.LogWarning("Device {DeviceId} returned error for contacts with status {Status}", deviceId, statusByte);
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_CONTACT_LIST_GET, statusByte,
+                                $"Device returned error status {statusByte} for contact retrieval");
+                    }
                 }
-            }
-            else
-            {
-                // Unexpected response code
-                _logger.LogWarning("Device {DeviceId} returned unexpected response code {ResponseCode} for contacts", deviceId, responseCode);
-                throw new ProtocolException((byte)MeshCoreCommand.CMD_GET_CONTACTS, 0x01,
-                    $"Unexpected response code {responseCode} for contact retrieval");
-            }
+                else
+                {
+                    // Unexpected response code
+                    _logger.LogWarning("Device {DeviceId} returned unexpected response code {ResponseCode} for contacts", deviceId, responseCode);
+                    throw new ProtocolException((byte)MeshCoreCommand.CMD_CONTACT_LIST_GET, 0x01,
+                        $"Unexpected response code {responseCode} for contact retrieval");
+                }
+            } while (cancellationToken.IsCancellationRequested == false);
         }
         catch (ProtocolException)
         {
@@ -457,10 +535,8 @@ public class MeshCodeClient : IDisposable
             _logger.LogError(ex, "Unexpected error during contact retrieval for device {DeviceId}", deviceId);
 
             // For unexpected errors, we can return an empty list and log the issue
-            var errorEmptyList = new List<Contact>();
-            _logger.LogContactRetrievalCompleted(deviceId, errorEmptyList.Count);
-            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId, errorEmptyList.Count);
-            return errorEmptyList;
+            _logger.LogContactRetrievalCompleted(deviceId);
+            MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
         }
     }
 
@@ -813,10 +889,9 @@ public class MeshCodeClient : IDisposable
             throw;
         }
     }
-
     /// <summary>
     /// Creates a default channel configuration for devices that don't support channel operations
-    /// /// </summary>
+    /// </summary>
     /// <returns>A default channel configuration</returns>
     private static Channel CreateDefaultChannel()
     {
@@ -1148,7 +1223,7 @@ public class MeshCodeClient : IDisposable
 
         // According to research: channels are stored in /channels2 file with up to 40 entries
         // Query channel indices 0-9 to see what's configured (limiting to first 10 for efficiency)
-        for (uint channelIndex = 0; channelIndex <= MeshCodeClient.MaxChannelsSupported; channelIndex++)
+        for (uint channelIndex = 0; channelIndex <= MeshCoreClient.MaxChannelsSupported; channelIndex++)
         {
             var channel = await TryGetChannelAsync(channelIndex);
             if (channel != null)
@@ -1230,7 +1305,7 @@ public class MeshCodeClient : IDisposable
                 }
                 else
                 {
-                    _logger.LogDebug("Error response for channel index {ChannelIndex} on device {DeviceId}: status {Status}",
+                    _logger.LogDebug("Unexpected error response for channel index {ChannelIndex} on device {DeviceId}: status {Status}",
                         channelIndex, deviceId, status);
                 }
             }
@@ -2128,30 +2203,17 @@ public class MeshCodeClient : IDisposable
 
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, new byte[] { 0x08 });
 
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
-                response.Payload.FirstOrDefault(),
-                deviceId);
+            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
+            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_DEVICE_INFO)
             {
                 var status = response.GetStatus();
                 var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
-
-                var ex = new ProtocolException(
-                    (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
-                    statusByte,
-                    "Failed to read device preferences for auto-add state.");
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_DEVICE_QUERY, statusByte, "Failed to read device preferences for auto-add state");
 
                 _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_DEVICE_QUERY, statusByte);
-                MeshCoreSdkEventSource.Log.ProtocolError(
-                    (byte)MeshCoreCommand.CMD_DEVICE_QUERY,
-                    statusByte,
-                    ex.Message);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_DEVICE_QUERY, statusByte, ex.Message);
 
                 throw ex;
             }
@@ -2306,9 +2368,8 @@ public class MeshCodeClient : IDisposable
         ErrorOccurred?.Invoke(this, ex);
     }
 
-    private async Task<IEnumerable<Contact>> ParseContactsSequenceAsync(byte[] initialData, CancellationToken cancellationToken)
+    private async Task<uint> ParseContactsSequenceAsync(CancellationToken cancellationToken)
     {
-        var contacts = new List<Contact>();
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
         _logger.LogDebug("Parsing contacts sequence for device {DeviceId}", deviceId);
@@ -2322,10 +2383,24 @@ public class MeshCodeClient : IDisposable
 
                 var nextResponse = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SYNC_NEXT_MESSAGE, cancellationToken: cancellationToken);
                 var responseCode = nextResponse.GetResponseCode();
+                var status = nextResponse.GetStatus();
+
+                _logger.LogDebug(
+                    "SYNC_NEXT_MESSAGE response: {ResponseCode} (Status: {Status}) payloadLen={PayloadLen}",
+                    responseCode,
+                    status?.ToString() ?? "null",
+                    nextResponse.Payload.Length);
 
                 if (responseCode == MeshCoreResponseCode.RESP_CODE_END_OF_CONTACTS)
                 {
-                    _logger.LogDebug("End of contacts reached for device {DeviceId}", deviceId);
+                    if (nextResponse.Payload.Length >= 5)
+                    {
+                        var lastmod = BitConverter.ToUInt32(nextResponse.Payload, 1);
+                        _logger.LogDebug("End of contacts for device {DeviceId}, lastmod cursor={Lastmod}", deviceId, lastmod);
+                        return lastmod;
+                    }
+
+                    _logger.LogDebug("End of contacts marker received without lastmod cursor for device {DeviceId}", deviceId);
                     break;
                 }
                 else if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT)
@@ -2335,10 +2410,17 @@ public class MeshCodeClient : IDisposable
                         Contact? contact;
                         if (TryDeserializeContact(nextResponse.Payload, out contact) && (contact != null))
                         {
-                            contacts.Add(contact);
-
                             _logger.LogContactParsed(contact.Name, contact.PublicKey.ToString());
                             MeshCoreSdkEventSource.Log.ContactParsed(contact.Name, contact.PublicKey.ToString());
+
+                            // Add detailed dispatching log similar to Python CLI
+                            _logger.LogDebug($"Dispatching contact: {contact}");
+
+                            ContactStatusChanged?.Invoke(this, contact);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Received contact response could not be parsed for device {DeviceId}", deviceId);
                         }
                     }
                     catch (Exception ex)
@@ -2349,18 +2431,17 @@ public class MeshCodeClient : IDisposable
                 }
                 else if (responseCode == MeshCoreResponseCode.RESP_CODE_NO_MORE_MESSAGES)
                 {
-                    _logger.LogDebug("Device reports no more messages/contacts for device {DeviceId}", deviceId);
+                    _logger.LogDebug("Device reports no more messages/contacts during contact enumeration for device {DeviceId}", deviceId);
                     break;
                 }
                 else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
                 {
-                    _logger.LogWarning("Error response during contact enumeration for device {DeviceId}", deviceId);
+                    _logger.LogWarning("Error response during contact enumeration for device {DeviceId}: Status={Status}.", deviceId, status?.ToString() ?? "null");
                     break;
                 }
                 else
                 {
-                    _logger.LogWarning("Unexpected response during contact enumeration: {ResponseCode} for device {DeviceId}", responseCode, deviceId);
-                    break;
+                    _logger.LogWarning("Unexpected response during contact enumeration: {ResponseCode} (Status: {Status}) for device {DeviceId}", responseCode, status?.ToString() ?? "null", deviceId);
                 }
             }
             catch (Exception ex)
@@ -2370,119 +2451,10 @@ public class MeshCodeClient : IDisposable
             }
         } while (cancellationToken.IsCancellationRequested == false);
 
-        _logger.LogDebug("Contact retrieval summary for device {DeviceId}: {ContactCount} contacts retrieved.",
-            deviceId, contacts.Count);
+        _logger.LogDebug("Contact retrieval summary for device {DeviceId}.", deviceId);
 
-        return contacts;
+        return 0;
     }
-
-    /// <summary>
-    /// Continue parsing contacts using the existing ParseContactsSequence logic
-    /// </summary>
-    private async Task ContinueParsingContacts(List<Contact> contacts, string deviceId)
-    {
-        var maxContacts = 100;
-        var contactCount = contacts.Count; // Start with contacts already added
-        var consecutiveErrors = 0;
-        var maxConsecutiveErrors = 3;
-
-        while (contactCount < maxContacts)
-        {
-            try
-            {
-                await Task.Delay(100);
-
-                var nextResponse = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SYNC_NEXT_MESSAGE);
-                var responseCode = nextResponse.GetResponseCode();
-
-                _logger.LogTrace("Next contact response: {ResponseCode} for contact #{ContactNumber}", responseCode, contactCount + 1);
-
-                if (responseCode == MeshCoreResponseCode.RESP_CODE_END_OF_CONTACTS)
-                {
-                    _logger.LogDebug("End of contacts reached for device {DeviceId}", deviceId);
-                    break;
-                }
-                else if (responseCode == MeshCoreResponseCode.RESP_CODE_CONTACT)
-                {
-                    try
-                    {
-                        Contact? contact;
-                        if (TryDeserializeContact(nextResponse.Payload, out contact) && (contact != null))
-                        {
-                            contacts.Add(contact);
-                            contactCount++;
-                            consecutiveErrors = 0;
-
-                            _logger.LogDebug("Parsed contact: {ContactName} ({ContactPublicKey})", contact.Name, contact.PublicKey);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to parse contact #{ContactNumber} for device {DeviceId}", contactCount + 1, deviceId);
-                        contactCount++;
-                        consecutiveErrors++;
-                    }
-                }
-                else if (responseCode == MeshCoreResponseCode.RESP_CODE_NO_MORE_MESSAGES)
-                {
-                    _logger.LogDebug("Device reports no more contacts for device {DeviceId}", deviceId);
-                    break;
-                }
-                else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
-                {
-                    consecutiveErrors++;
-                    _logger.LogWarning("Error response during contact enumeration for device {DeviceId} (consecutive errors: {ConsecutiveErrors})", deviceId, consecutiveErrors);
-
-                    if (consecutiveErrors >= maxConsecutiveErrors)
-                    {
-                        _logger.LogWarning("Stopping contact retrieval after {ConsecutiveErrors} consecutive errors for device {DeviceId}", consecutiveErrors, deviceId);
-                        break;
-                    }
-                    else
-                    {
-                        contactCount++;
-                    }
-                }
-                else
-                {
-                    consecutiveErrors++;
-                    _logger.LogWarning("Unexpected response during contact enumeration: {ResponseCode} for device {DeviceId}", responseCode, deviceId);
-
-                    if (consecutiveErrors >= maxConsecutiveErrors)
-                    {
-                        _logger.LogWarning("Too many unexpected responses, stopping contact retrieval for device {DeviceId}", deviceId);
-                        break;
-                    }
-                    else
-                    {
-                        contactCount++;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                consecutiveErrors++;
-                _logger.LogError(ex, "Error during contact retrieval for device {DeviceId} (consecutive errors: {ConsecutiveErrors})", deviceId, consecutiveErrors);
-
-                if (consecutiveErrors >= maxConsecutiveErrors)
-                {
-                    _logger.LogError("Too many consecutive errors, stopping contact retrieval for device {DeviceId}", deviceId);
-                    break;
-                }
-                else
-                {
-                    contactCount++;
-                }
-            }
-        }
-
-        _logger.LogDebug("Contact continuation summary for device {DeviceId}: {TotalContacts} total contacts, {ConsecutiveErrors} final consecutive errors",
-            deviceId, contacts.Count, consecutiveErrors);
-    }
-
-    #endregion
-
-    #region Parsing Methods
 
     private static DeviceInfo ParseDeviceInfo(byte[] data)
     {
@@ -2535,6 +2507,8 @@ public class MeshCodeClient : IDisposable
     {
         if (!_disposed)
         {
+            this.Disconnect();
+
             var deviceId = _transport.ConnectionId ?? "Unknown";
             _logger.LogDeviceDisconnected(deviceId);
             MeshCoreSdkEventSource.Log.DeviceDisconnected(deviceId);

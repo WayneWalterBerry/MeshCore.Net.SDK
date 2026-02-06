@@ -26,41 +26,35 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
     }
 
     /// <summary>
-    /// Verifies that <see cref="MeshCodeClient.SendSelfAdvertAsync(Advertisement)"/> succeeds
+    /// Verifies that <see cref="MeshCoreClient.SendSelfAdvertAsync(Advertisement)"/> succeeds
     /// when issuing a basic zero-hop self advertisement.
     /// </summary>
     [Fact]
     public async Task Test_01_SendSelfAdvertAsync_ShouldSucceed_ForZeroHopAdvert()
     {
-        await ExecuteStandardTest("Zero-hop self advertisement", async () =>
+        await ExecuteIsolationTestAsync("Zero-hop self advertisement", async (client) =>
         {
-            // Arrange
-            await EnsureConnected();
-
             // Act - no exception means success
-            await SharedClient!.SendSelfAdvertZeroHopAsync();
+            await client.SendSelfAdvertZeroHopAsync();
         });
     }
 
     /// <summary>
-    /// Verifies that <see cref="MeshCodeClient.SendSelfAdvertAsync(Advertisement)"/> succeeds
+    /// Verifies that <see cref="MeshCoreClient.SendSelfAdvertAsync(Advertisement)"/> succeeds
     /// when issuing a flood-mode self advertisement.
     /// </summary>
     [Fact]
     public async Task Test_02_SendSelfAdvertAsync_ShouldSucceed_ForFloodAdvert()
     {
-        await ExecuteStandardTest("Flood-mode self advertisement", async () =>
+        await ExecuteIsolationTestAsync("Flood-mode self advertisement", async (client) =>
         {
-            // Arrange
-            await EnsureConnected();
-
             // Act - no exception means success
-            await SharedClient!.SendSelfAdvertFloodAsync();
+            await client.SendSelfAdvertFloodAsync();
         });
     }
 
     /// <summary>
-    /// Executes an integration test that verifies advert path retrieval for all contacts using the shared client.
+    /// Executes an integration test that verifies advert path retrieval for all contacts using an isolated client.
     /// </summary>
     /// <remarks>This test ensures that the GetAdvertPathAsync method can be called for each contact and
     /// completes successfully, regardless of whether a path is found. The test writes output for each contact with a
@@ -70,33 +64,31 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
     [Fact]
     public async Task Test_03_GetAdvertPathSync_WalkContacts()
     {
-        await ExecuteStandardTest("Get advert paths for all contacts", async () =>
-        {
-            // Arrange
-            await EnsureConnected();
+        List<Contact> contacts = new List<Contact>();
 
-            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
+        await ExecuteIsolationTestAsync("GET ALL CONTACTS", async (client) =>
+        {
+            contacts = (await client.GetContactsAsync(CancellationToken.None)).ToList();
 
             _output.WriteLine("Found {0} contacts to check advert paths for.", contacts.Count());
+        });
 
+        await ExecuteIsolationTestAsync("GET ADVERT PATHES", async (client) =>
+        {
             foreach (var contact in contacts)
             {
                 // Act
-                AdvertPathInfo? advertPath = await SharedClient.TryGetAdvertPathAsync(contact.PublicKey);
+                AdvertPathInfo? advertPath = await client.TryGetAdvertPathAsync(contact.PublicKey);
 
                 // Assert – it is valid for there to be no known path yet; the main check is that the call succeeds.
-                _output.WriteLine(
-                    "GetAdvertPathAsync completed for contact '{0}' (PublicKey {1}). Path length: {2}",
-                    contact.Name,
-                    contact.PublicKey,
-                    advertPath?.Path.Length ?? 0);
+                _output.WriteLine($"GetAdvertPathAsync completed for contact '{contact.Name}' (PublicKey {contact.PublicKey}). {advertPath}");
             }
         });
     }
 
     /// <summary>
     /// Verifies that the device advert name can be changed using
-    /// <see cref="MeshCodeClient.SetAdvertNameAsync(string, System.Threading.CancellationToken)"/>.
+    /// <see cref="MeshCoreClient.SetAdvertNameAsync(string, System.Threading.CancellationToken)"/>.
     /// </summary>
     /// <remarks>
     /// This test sets a known advert name on the connected device and relies on the absence
@@ -108,15 +100,12 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
     {
         const string newAdvertName = "MeshCore.Net.SDK";
 
-        await ExecuteStandardTest("Set advert name", async () =>
+        await ExecuteIsolationTestAsync("Set advert name", async (client) =>
         {
-            // Arrange
-            await EnsureConnected();
-
             _output.WriteLine("Setting advert name to: {0}", newAdvertName);
 
             // Act – no exception indicates that the firmware accepted the new name.
-            await SharedClient!.SetAdvertNameAsync(newAdvertName, CancellationToken.None);
+            await client.SetAdvertNameAsync(newAdvertName, CancellationToken.None);
 
             _output.WriteLine("Advert name set successfully.");
         });

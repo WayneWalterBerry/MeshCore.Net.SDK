@@ -66,21 +66,19 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
     {
         string message = "T";
 
-        await ExecuteStandardTest("Hashtag Channel Messaging Debug", async () =>
+        await ExecuteIsolationTestAsync("Hashtag Channel Messaging Debug", async (client) =>
         {
             _output.WriteLine("GOAL: Debug SDK implementation of CMD_SEND_CHANNEL_TXT_MSG");
             _output.WriteLine("STATUS: Currently fails with InvalidCommand - payload format issue");
             _output.WriteLine("");
 
-            // First, verify device supports related commands
-            await VerifyDeviceCapabilities();
-
             // Debug: Discover what channels are actually configured on the device
             _output.WriteLine($"🔍 DYNAMIC CHANNEL DISCOVERY:");
+
             try
             {
                 _output.WriteLine($"   Querying device for all configured channels...");
-                var availableChannels = await SharedClient!.GetChannelsAsync();
+                var availableChannels = await client.GetChannelsAsync();
 
                 _output.WriteLine($"   Device has {availableChannels.Count()} configured channels:");
                 foreach (var channel in availableChannels.OrderBy(kvp => kvp.Index))
@@ -102,14 +100,14 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
             _output.WriteLine($"🗺️ TEST SCENARIO: Sending to {BotChannelName} hashtag channel");
             _output.WriteLine($"   Message Content: '{message}'");
             _output.WriteLine($"   Expected CMD: 0x03 (CMD_SEND_CHANNEL_TXT_MSG)");
-            _output.WriteLine($"   Device: {SharedClient!.ConnectionId} (PugetMesh: 910.525 MHz)");
+            _output.WriteLine($"   Device: {client.ConnectionId} (PugetMesh: 910.525 MHz)");
             _output.WriteLine($"   🎡 NEW: Dynamic channel mapping - SDK queries device for actual config");
             _output.WriteLine($"   📝 SDK will find correct index for '{BotChannelName}' or use default");
             _output.WriteLine("");
 
             try
             {
-                await SharedClient!.SendChannelMessageAsync(BotChannelName, message);
+                await client.SendChannelMessageAsync(BotChannelName, message);
 
                 _output.WriteLine($"🎉 TEST PASSED: SDK correctly implemented hashtag channel messaging!");
             }
@@ -143,21 +141,18 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
     [Fact]
     public async Task Test_GetPendingMessagesAsync_ShouldRetrievePendingMessagesFromDeviceQueue()
     {
-        await ExecuteStandardTest("Get Pending Messages from Device Queue", async () =>
+        await ExecuteIsolationTestAsync("Get Pending Messages from Device Queue", async (client) =>
         {
             _output.WriteLine("GOAL: Test SyncronizeQueueAsync() - core message retrieval mechanism");
             _output.WriteLine("PURPOSE: Similar to getFromOfflineQueue in MyMesh.cpp - syncs messages from device queue");
             _output.WriteLine("");
-
-            // First, verify device supports related commands
-           // await VerifyDeviceCapabilities();
 
             // Track messages received via the MessageReceived event
             var pendingMessages = new List<Message>();
             var messageReceivedCount = 0;
 
             _output.WriteLine($"🔄 MESSAGE QUEUE SYNCHRONIZATION:");
-            _output.WriteLine($"   Device: {SharedClient!.ConnectionId} (PugetMesh: 910.525 MHz)");
+            _output.WriteLine($"   Device: {client.ConnectionId} (PugetMesh: 910.525 MHz)");
             _output.WriteLine($"   Command: CMD_SYNC_NEXT_MESSAGE (iterative message retrieval)");
             _output.WriteLine($"   Expected: Contact/Channel messages (V1/V3 protocol variants)");
             _output.WriteLine("");
@@ -181,7 +176,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
             }
 
             // Subscribe to MessageReceived event
-            SharedClient.MessageReceived += OnMessageReceived;
+            client.MessageReceived += OnMessageReceived;
 
             try
             {
@@ -189,7 +184,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
                 var startTime = DateTime.UtcNow;
 
                 // Call SyncronizeQueueAsync which will trigger MessageReceived events for each message found
-                await SharedClient!.SyncronizeQueueAsync(CancellationToken.None);
+                await client.SyncronizeQueueAsync(CancellationToken.None);
 
                 var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
 
@@ -197,7 +192,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
                 _output.WriteLine($"   Message Count: {pendingMessages.Count}");
                 _output.WriteLine($"   Events Fired: {messageReceivedCount}");
                 _output.WriteLine($"   Retrieval Duration: {duration:F1}ms");
-                _output.WriteLine($"   Device: {SharedClient!.ConnectionId}");
+                _output.WriteLine($"   Device: {client.ConnectionId}");
                 _output.WriteLine("");
 
                 // Verify event tracking matches collected messages
@@ -214,7 +209,7 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
             finally
             {
                 // Unsubscribe from event to prevent memory leaks
-                SharedClient.MessageReceived -= OnMessageReceived;
+                client.MessageReceived -= OnMessageReceived;
                 _output.WriteLine($"🧹 Event cleanup: Unsubscribed from MessageReceived event");
             }
         });
@@ -226,126 +221,38 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
     [Fact]
     public async Task Test_DeviceConnection_ShouldConnectAndVerifyBasicFunctionality()
     {
-        await ExecuteDeviceConnectionTest();
-
-        // Add messaging-specific device verification
-        _output.WriteLine($"📟 MESSAGING-SPECIFIC DEVICE VERIFICATION:");
-
-        var deviceInfo = await SharedClient!.GetDeviceInfoAsync();
-        Assert.NotNull(deviceInfo);
-
-        _output.WriteLine($"   Device ID: {deviceInfo.DeviceId}");
-        _output.WriteLine($"   Firmware: {deviceInfo.FirmwareVersion}");
-        _output.WriteLine($"   Hardware: {deviceInfo.HardwareVersion}");
-        _output.WriteLine($"   Serial: {deviceInfo.SerialNumber}");
-
-        // Test basic commands relevant to messaging
-        await TestBasicMessagingCommands();
-
-        _output.WriteLine($"✅ Device connection test passed");
-        _output.WriteLine($"🔎 Device ready for channel messaging tests");
-    }
-
-    #region Helper Methods
-
-    /// <summary>
-    /// Verifies the device supports commands related to messaging
-    /// </summary>
-    private async Task VerifyDeviceCapabilities()
-    {
-        _output.WriteLine($"🔍 DEVICE CAPABILITY VERIFICATION:");
-
-        var capabilities = new List<(string command, string status)>();
-
-        // Test CMD_DEVICE_QUERY
-        try
+        await ExecuteIsolationTestAsync("Device Connection and Basic Functionality", async (client) =>
         {
-            var deviceInfo = await SharedClient!.GetDeviceInfoAsync();
-            capabilities.Add(("CMD_DEVICE_QUERY (0x16)", $"✓ Works - {deviceInfo.FirmwareVersion}"));
-        }
-        catch (Exception ex)
-        {
-            capabilities.Add(("CMD_DEVICE_QUERY (0x16)", $"✗ Failed: {ex.Message}"));
-        }
+            // Add messaging-specific device verification
+            _output.WriteLine($"📟 MESSAGING-SPECIFIC DEVICE VERIFICATION:");
 
-        // Test CMD_GET_CONTACTS
-        try
-        {
-            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
-            capabilities.Add(("CMD_GET_CONTACTS (0x04)", $"✓ Works - {contacts.Count} contacts"));
-        }
-        catch (Exception ex)
-        {
-            capabilities.Add(("CMD_GET_CONTACTS (0x04)", $"✗ Failed: {ex.Message}"));
-        }
+            var deviceInfo = await client.GetDeviceInfoAsync();
+            Assert.NotNull(deviceInfo);
 
-        // Test CMD_GET_CHANNEL
-        try
-        {
-            var channel = await SharedClient!.GetPublicChannelAsync();
-            capabilities.Add(("CMD_GET_CHANNEL (0x32)", $"✓ Works - {channel.Name}"));
-        }
-        catch (Exception ex)
-        {
-            capabilities.Add(("CMD_GET_CHANNEL (0x32)", $"✗ Failed: {ex.Message}"));
-        }
+            _output.WriteLine($"{deviceInfo}");
 
-        // Test CMD_SEND_TXT_MSG availability
-        try
-        {
-            var contacts = (await SharedClient!.GetContactsAsync(CancellationToken.None)).ToList();
-            if (contacts.Any())
-            {
-                capabilities.Add(("CMD_SEND_TXT_MSG (0x02)", $"✓ Available - {contacts.Count} potential recipients"));
-            }
-            else
-            {
-                capabilities.Add(("CMD_SEND_TXT_MSG (0x02)", $"ℹ️ Available - No contacts to test with"));
-            }
-        }
-        catch (Exception ex)
-        {
-            capabilities.Add(("CMD_SEND_TXT_MSG (0x02)", $"✗ Cannot test: {ex.Message}"));
-        }
+            // Test basic commands relevant to messaging
+            await TestBasicMessagingCommands(client);
 
-        // Display results
-        foreach (var (command, status) in capabilities)
-        {
-            _output.WriteLine($"   {command}: {status}");
-        }
-
-        var workingCount = capabilities.Count(c => c.status.StartsWith("✓"));
-        var totalCount = capabilities.Count;
-
-        _output.WriteLine("");
-        _output.WriteLine($"📋 CAPABILITY SUMMARY: {workingCount}/{totalCount} commands working");
-
-        if (workingCount >= 2)
-        {
-            _output.WriteLine($"✅ Device supports advanced messaging - CMD_SEND_CHANNEL_TXT_MSG should work");
-            _output.WriteLine($"👁️ This confirms the issue is SDK payload format, not device capability");
-        }
-        else
-        {
-            _output.WriteLine($"⚠️ Device has limited command support - may affect channel messaging");
-        }
-
-        _output.WriteLine("");
+            _output.WriteLine($"✅ Device connection test passed");
+            _output.WriteLine($"🔎 Device ready for channel messaging tests");
+        });
     }
 
     /// <summary>
     /// Tests basic messaging-related commands
     /// </summary>
-    private async Task TestBasicMessagingCommands()
+    /// <param name="client">The client to use for testing</param>
+    private async Task TestBasicMessagingCommands(MeshCoreClient client)
     {
         var commandTests = new List<(string name, Func<Task> test)>
         {
             ("Device Time", async () => {
-                var time = await SharedClient!.GetDeviceTimeAsync();
+                var time = await client.GetDeviceTimeAsync();
                 _output.WriteLine($"   Device Time: {time:HH:mm:ss} UTC");
             }),
             ("Network Status", async () => {
-                var status = await SharedClient!.GetNetworkStatusAsync();
+                var status = await client.GetNetworkStatusAsync();
                 _output.WriteLine($"   Network: {(status.IsConnected ? "Connected" : "Disconnected")}");
             })
         };
@@ -488,13 +395,4 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
             _output.WriteLine($"   ✓ Normal retrieval performance");
         }
     }
-
-    /// <summary>
-    /// Performs custom cleanup for messaging tests
-    /// </summary>
-    protected override void PerformCustomCleanup()
-    {
-    }
-
-    #endregion
 }

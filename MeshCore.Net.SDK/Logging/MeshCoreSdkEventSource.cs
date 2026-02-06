@@ -23,7 +23,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when device discovery starts for a specific transport
     /// </summary>
     /// <param name="transportType">The type of transport being used for discovery</param>
-    [Event(100, Level = EventLevel.Informational, Message = "Device discovery started for transport: {transportType}")]
+    [Event(100, Level = EventLevel.Informational, Message = "Device discovery started for transport: {0}")]
     public void DeviceDiscoveryStarted(string transportType)
     {
         WriteEvent(100, transportType);
@@ -34,7 +34,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="deviceCount">The number of devices discovered</param>
     /// <param name="transportType">The type of transport used for discovery</param>
-    [Event(101, Level = EventLevel.Informational, Message = "Device discovery completed. Found {deviceCount} devices for transport: {transportType}")]
+    [Event(101, Level = EventLevel.Informational, Message = "Device discovery completed. Found {0} devices for transport: {1}")]
     public void DeviceDiscoveryCompleted(int deviceCount, string transportType)
     {
         WriteEvent(101, deviceCount, transportType);
@@ -45,7 +45,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="deviceId">The identifier of the device being connected to</param>
     /// <param name="transportType">The type of transport being used for connection</param>
-    [Event(102, Level = EventLevel.Informational, Message = "Connecting to device: {deviceId} via {transportType}")]
+    [Event(102, Level = EventLevel.Informational, Message = "Connecting to device: {0} via {1}")]
     public void DeviceConnectionStarted(string deviceId, string transportType)
     {
         WriteEvent(102, deviceId ?? "Unknown", transportType ?? "Unknown");
@@ -56,7 +56,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="deviceId">The identifier of the device that was connected</param>
     /// <param name="transportType">The type of transport used for connection</param>
-    [Event(103, Level = EventLevel.Informational, Message = "Successfully connected to device: {deviceId} via {transportType}")]
+    [Event(103, Level = EventLevel.Informational, Message = "Successfully connected to device: {0} via {1}")]
     public void DeviceConnectionSucceeded(string deviceId, string transportType)
     {
         WriteEvent(103, deviceId ?? "Unknown", transportType ?? "Unknown");
@@ -68,7 +68,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="deviceId">The identifier of the device that failed to connect</param>
     /// <param name="transportType">The type of transport used for connection</param>
     /// <param name="errorMessage">The error message describing the failure</param>
-    [Event(104, Level = EventLevel.Error, Message = "Failed to connect to device: {deviceId} via {transportType}. Error: {errorMessage}")]
+    [Event(104, Level = EventLevel.Error, Message = "Failed to connect to device: {0} via {1}. Error: {2}")]
     public void DeviceConnectionFailed(string deviceId, string transportType, string errorMessage)
     {
         WriteEvent(104, deviceId ?? "Unknown", transportType ?? "Unknown", errorMessage ?? "Unknown error");
@@ -78,7 +78,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when a device is disconnected
     /// </summary>
     /// <param name="deviceId">The identifier of the device that was disconnected</param>
-    [Event(105, Level = EventLevel.Informational, Message = "Device disconnected: {deviceId}")]
+    [Event(105, Level = EventLevel.Informational, Message = "Device disconnected: {0}")]
     public void DeviceDisconnected(string deviceId)
     {
         WriteEvent(105, deviceId ?? "Unknown");
@@ -93,7 +93,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="command">The command byte being sent</param>
     /// <param name="deviceId">The identifier of the target device</param>
-    [Event(200, Level = EventLevel.Verbose, Message = "Sending command: {command} to device: {deviceId}")]
+    [Event(200, Level = EventLevel.Verbose, Message = "Sending command: {0} to device: {1}")]
     public void CommandSending(byte command, string deviceId)
     {
         WriteEvent(200, command, deviceId ?? "Unknown");
@@ -104,7 +104,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="command">The command byte that was sent</param>
     /// <param name="deviceId">The identifier of the target device</param>
-    [Event(201, Level = EventLevel.Verbose, Message = "Command sent successfully: {command} to device: {deviceId}")]
+    [Event(201, Level = EventLevel.Verbose, Message = "Command sent successfully: {0} to device: {1}")]
     public void CommandSent(byte command, string deviceId)
     {
         WriteEvent(201, command, deviceId ?? "Unknown");
@@ -116,7 +116,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="command">The command byte that the response is for</param>
     /// <param name="status">The status byte in the response</param>
     /// <param name="deviceId">The identifier of the device that sent the response</param>
-    [Event(202, Level = EventLevel.Verbose, Message = "Received response for command: {command} with status: {status} from device: {deviceId}")]
+    [Event(202, Level = EventLevel.Verbose, Message = "Received response for command: {0} with status: {1} from device: {2}")]
     public void ResponseReceived(byte command, byte status, string deviceId)
     {
         WriteEvent(202, command, status, deviceId ?? "Unknown");
@@ -128,7 +128,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="command">The command byte that timed out</param>
     /// <param name="deviceId">The identifier of the target device</param>
     /// <param name="timeoutMs">The timeout duration in milliseconds</param>
-    [Event(203, Level = EventLevel.Warning, Message = "Command timeout: {command} for device: {deviceId} after {timeoutMs}ms")]
+    [Event(203, Level = EventLevel.Warning, Message = "Command timeout: {0} for device: {1} after {2}ms")]
     public void CommandTimeout(byte command, string deviceId, int timeoutMs)
     {
         WriteEvent(203, command, deviceId ?? "Unknown", timeoutMs);
@@ -140,7 +140,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="command">The command byte that caused the error</param>
     /// <param name="status">The error status byte</param>
     /// <param name="errorMessage">The error message describing the problem</param>
-    [Event(204, Level = EventLevel.Error, Message = "Protocol error for command: {command}, status: {status}, message: {errorMessage}")]
+    [Event(204, Level = EventLevel.Error, Message = "Protocol error for command: {0}, status: {1}, message: {2}")]
     public void ProtocolError(byte command, byte status, string errorMessage)
     {
         WriteEvent(204, command, status, errorMessage ?? "Unknown error");
@@ -152,7 +152,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="startByte">The start byte of the parsed frame</param>
     /// <param name="length">The length of the parsed frame</param>
     /// <param name="payloadLength">The length of the payload in the parsed frame</param>
-    [Event(205, Level = EventLevel.Verbose, Message = "Frame parsed successfully: StartByte={startByte}, Length={length}, PayloadLength={payloadLength}")]
+    [Event(205, Level = EventLevel.Verbose, Message = "Frame parsed successfully: StartByte={0}, Length={1}, PayloadLength={2}")]
     public void FrameParsed(byte startByte, ushort length, int payloadLength)
     {
         WriteEvent(205, startByte, length, payloadLength);
@@ -163,10 +163,46 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="errorMessage">The error message describing why parsing failed</param>
     /// <param name="rawDataLength">The length of the raw data that failed to parse</param>
-    [Event(206, Level = EventLevel.Warning, Message = "Frame parsing failed: {errorMessage}, RawDataLength={rawDataLength}")]
+    [Event(206, Level = EventLevel.Warning, Message = "Frame parsing failed: {0}, RawDataLength={1}")]
     public void FrameParsingFailed(string errorMessage, int rawDataLength)
     {
         WriteEvent(206, errorMessage ?? "Unknown error", rawDataLength);
+    }
+
+    /// <summary>
+    /// Logs raw data received from device
+    /// </summary>
+    [Event(207, Level = EventLevel.Verbose, Message = "Received data: {0}")]
+    public void RawDataReceived(string rawData)
+    {
+        WriteEvent(207, rawData ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Logs raw data being sent to device
+    /// </summary>
+    [Event(208, Level = EventLevel.Verbose, Message = "Sending raw data: {0}")]
+    public void RawDataSending(string rawData)
+    {
+        WriteEvent(208, rawData ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Logs sending packet
+    /// </summary>
+    [Event(209, Level = EventLevel.Verbose, Message = "Sending pkt {0} (len={1})")]
+    public void SendingPacket(string packet, int length)
+    {
+        WriteEvent(209, packet ?? string.Empty, length);
+    }
+
+    /// <summary>
+    /// Logs SYNC_NEXT_MESSAGE response
+    /// </summary>
+    [Event(210, Level = EventLevel.Verbose, Message = "SYNC_NEXT_MESSAGE response: {0} (Status: {1}) payloadLen={2}")]
+    public void SyncNextMessageResponse(string responseCode, string status, int payloadLength)
+    {
+        WriteEvent(210, responseCode ?? "Unknown", status ?? "null", payloadLength);
     }
 
     #endregion
@@ -177,7 +213,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when contact retrieval starts for a device
     /// </summary>
     /// <param name="deviceId">The identifier of the device from which contacts are being retrieved</param>
-    [Event(300, Level = EventLevel.Informational, Message = "Contact retrieval started for device: {deviceId}")]
+    [Event(300, Level = EventLevel.Informational, Message = "Contact retrieval started for device: {0}")]
     public void ContactRetrievalStarted(string deviceId)
     {
         WriteEvent(300, deviceId ?? "Unknown");
@@ -187,11 +223,10 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when contact retrieval completes
     /// </summary>
     /// <param name="deviceId">The identifier of the device from which contacts were retrieved</param>
-    /// <param name="contactCount">The number of contacts retrieved</param>
-    [Event(301, Level = EventLevel.Informational, Message = "Contact retrieval completed for device: {deviceId}. Found {contactCount} contacts")]
-    public void ContactRetrievalCompleted(string deviceId, int contactCount)
+    [Event(301, Level = EventLevel.Informational, Message = "Contact retrieval completed for device: {0}.")]
+    public void ContactRetrievalCompleted(string deviceId)
     {
-        WriteEvent(301, deviceId ?? "Unknown", contactCount);
+        WriteEvent(301, deviceId ?? "Unknown");
     }
 
     /// <summary>
@@ -199,7 +234,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="contactName">The name of the parsed contact</param>
     /// <param name="nodeId">The node identifier of the parsed contact</param>
-    [Event(302, Level = EventLevel.Verbose, Message = "Contact parsed: Name={contactName}, NodeId={nodeId}")]
+    [Event(302, Level = EventLevel.Verbose, Message = "Contact parsed: Name={0}, NodeId={1}")]
     public void ContactParsed(string contactName, string nodeId)
     {
         WriteEvent(302, contactName ?? "Unknown", nodeId ?? "Unknown");
@@ -209,7 +244,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when contact parsing fails
     /// </summary>
     /// <param name="errorMessage">The error message describing why parsing failed</param>
-    [Event(303, Level = EventLevel.Warning, Message = "Contact parsing failed: {errorMessage}")]
+    [Event(303, Level = EventLevel.Warning, Message = "Contact parsing failed: {0}")]
     public void ContactParsingFailed(string errorMessage)
     {
         WriteEvent(303, errorMessage ?? "Unknown error");
@@ -220,7 +255,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="contactName">The name of the contact that was added</param>
     /// <param name="nodeId">The node identifier of the contact that was added</param>
-    [Event(304, Level = EventLevel.Informational, Message = "Contact added: {contactName} with NodeId: {nodeId}")]
+    [Event(304, Level = EventLevel.Informational, Message = "Contact added: {0} with NodeId: {1}")]
     public void ContactAdded(string contactName, string nodeId)
     {
         WriteEvent(304, contactName ?? "Unknown", nodeId ?? "Unknown");
@@ -230,10 +265,46 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when a contact is removed
     /// </summary>
     /// <param name="contactId">The identifier of the contact that was removed</param>
-    [Event(305, Level = EventLevel.Informational, Message = "Contact removed: {contactId}")]
+    [Event(305, Level = EventLevel.Informational, Message = "Contact removed: {0}")]
     public void ContactRemoved(string contactId)
     {
         WriteEvent(305, contactId ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs detailed contact dispatching matching CLI format
+    /// </summary>
+    [Event(306, Level = EventLevel.Verbose, Message = "Dispatching contact: PublicKey={0}, Type={1}, Flags={2}, OutPathLen={3}, Name='{4}', LastAdvert={5}, Lat={6}, Lon={7}, LastMod={8}")]
+    public void DispatchingContact(
+        string publicKey,
+        int type,
+        int flags,
+        int outPathLen,
+        string name,
+        long lastAdvert,
+        double lat,
+        double lon,
+        long lastMod)
+    {
+        WriteEvent(306, publicKey ?? "Unknown", type, flags, outPathLen, name ?? "Unknown", lastAdvert, lat, lon, lastMod);
+    }
+
+    /// <summary>
+    /// Logs contact retrieval protocol mode
+    /// </summary>
+    [Event(307, Level = EventLevel.Verbose, Message = "Device {0} using standard contact retrieval protocol with total count: {1}")]
+    public void ContactRetrievalProtocol(string deviceId, int totalCount)
+    {
+        WriteEvent(307, deviceId ?? "Unknown", totalCount);
+    }
+
+    /// <summary>
+    /// Logs parsing contacts sequence
+    /// </summary>
+    [Event(308, Level = EventLevel.Verbose, Message = "Parsing contacts sequence for device {0}")]
+    public void ParsingContactsSequence(string deviceId)
+    {
+        WriteEvent(308, deviceId ?? "Unknown");
     }
 
     #endregion
@@ -245,7 +316,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="toContactId">The identifier of the contact the message is being sent to</param>
     /// <param name="contentLength">The length of the message content</param>
-    [Event(400, Level = EventLevel.Informational, Message = "Message sending started: To={toContactId}, Length={contentLength}")]
+    [Event(400, Level = EventLevel.Informational, Message = "Message sending started: To={0}, Length={1}")]
     public void MessageSendingStarted(string toContactId, int contentLength)
     {
         WriteEvent(400, toContactId ?? "Unknown", contentLength);
@@ -255,7 +326,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when a message is sent successfully
     /// </summary>
     /// <param name="toContactId">The identifier of the contact or channel the message was sent to</param>
-    [Event(401, Level = EventLevel.Informational, Message = "Message sent successfully: To={toContactId}")]
+    [Event(401, Level = EventLevel.Informational, Message = "Message sent successfully: To={0}")]
     public void MessageSent(string toContactId)
     {
         WriteEvent(401, toContactId ?? "Unknown");
@@ -266,7 +337,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="toContactId">The identifier of the contact the message was being sent to</param>
     /// <param name="errorMessage">The error message describing the failure</param>
-    [Event(402, Level = EventLevel.Error, Message = "Message sending failed: To={toContactId}, Error={errorMessage}")]
+    [Event(402, Level = EventLevel.Error, Message = "Message sending failed: To={0}, Error={1}")]
     public void MessageSendingFailed(string toContactId, string errorMessage)
     {
         WriteEvent(402, toContactId ?? "Unknown", errorMessage ?? "Unknown error");
@@ -277,7 +348,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="fromContactId">The identifier of the contact who sent the message</param>
     /// <param name="contentLength">The length of the received message content</param>
-    [Event(403, Level = EventLevel.Informational, Message = "Message received: From={fromContactId}, Length={contentLength}")]
+    [Event(403, Level = EventLevel.Informational, Message = "Message received: From={0}, Length={1}")]
     public void MessageReceived(string fromContactId, int contentLength)
     {
         WriteEvent(403, fromContactId ?? "Unknown", contentLength);
@@ -287,7 +358,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when message retrieval starts for a device
     /// </summary>
     /// <param name="deviceId">The identifier of the device from which messages are being retrieved</param>
-    [Event(404, Level = EventLevel.Informational, Message = "Message retrieval started for device: {deviceId}")]
+    [Event(404, Level = EventLevel.Informational, Message = "Message retrieval started for device: {0}")]
     public void MessageRetrievalStarted(string deviceId)
     {
         WriteEvent(404, deviceId ?? "Unknown");
@@ -298,7 +369,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="deviceId">The identifier of the device from which messages were retrieved</param>
     /// <param name="messageCount">The number of messages retrieved</param>
-    [Event(405, Level = EventLevel.Informational, Message = "Message retrieval completed for device: {deviceId}. Found {messageCount} messages")]
+    [Event(405, Level = EventLevel.Informational, Message = "Message retrieval completed for device: {0}. Found {1} messages")]
     public void MessageRetrievalCompleted(string deviceId, int messageCount)
     {
         WriteEvent(405, deviceId ?? "Unknown", messageCount);
@@ -313,7 +384,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="operationName">The name of the operation being started</param>
     /// <param name="deviceId">The identifier of the device the operation is being performed on</param>
-    [Event(500, Level = EventLevel.Verbose, Message = "Operation started: {operationName} for device: {deviceId}")]
+    [Event(500, Level = EventLevel.Verbose, Message = "Operation started: {0} for device: {1}")]
     public void OperationStarted(string operationName, string deviceId)
     {
         WriteEvent(500, operationName ?? "Unknown", deviceId ?? "Unknown");
@@ -325,7 +396,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="operationName">The name of the operation that completed</param>
     /// <param name="deviceId">The identifier of the device the operation was performed on</param>
     /// <param name="durationMs">The duration of the operation in milliseconds</param>
-    [Event(501, Level = EventLevel.Verbose, Message = "Operation completed: {operationName} for device: {deviceId} in {durationMs}ms")]
+    [Event(501, Level = EventLevel.Verbose, Message = "Operation completed: {0} for device: {1} in {2}ms")]
     public void OperationCompleted(string operationName, string deviceId, long durationMs)
     {
         WriteEvent(501, operationName ?? "Unknown", deviceId ?? "Unknown", durationMs);
@@ -337,7 +408,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="operationName">The name of the slow operation</param>
     /// <param name="deviceId">The identifier of the device the operation was performed on</param>
     /// <param name="durationMs">The duration of the operation in milliseconds</param>
-    [Event(502, Level = EventLevel.Warning, Message = "Operation slow: {operationName} for device: {deviceId} took {durationMs}ms")]
+    [Event(502, Level = EventLevel.Warning, Message = "Operation slow: {0} for device: {1} took {2}ms")]
     public void OperationSlow(string operationName, string deviceId, long durationMs)
     {
         WriteEvent(502, operationName ?? "Unknown", deviceId ?? "Unknown", durationMs);
@@ -351,7 +422,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when the SDK is successfully initialized
     /// </summary>
     /// <param name="version">The version of the SDK that was initialized</param>
-    [Event(600, Level = EventLevel.Informational, Message = "SDK initialized successfully. Version: {version}")]
+    [Event(600, Level = EventLevel.Informational, Message = "SDK initialized successfully. Version: {0}")]
     public void SdkInitialized(string version)
     {
         WriteEvent(600, version ?? "Unknown");
@@ -362,7 +433,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="errorMessage">The error message describing the unexpected error</param>
     /// <param name="source">The source or context where the error occurred</param>
-    [Event(601, Level = EventLevel.Error, Message = "Unexpected error: {errorMessage} in {source}")]
+    [Event(601, Level = EventLevel.Error, Message = "Unexpected error: {0} in {1}")]
     public void UnexpectedError(string errorMessage, string source)
     {
         WriteEvent(601, errorMessage ?? "Unknown error", source ?? "Unknown");
@@ -373,7 +444,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="featureName">The name of the deprecated feature that was used</param>
     /// <param name="source">The source or context where the deprecated feature was used</param>
-    [Event(602, Level = EventLevel.Warning, Message = "Deprecated feature used: {featureName} in {source}. Consider upgrading.")]
+    [Event(602, Level = EventLevel.Warning, Message = "Deprecated feature used: {0} in {1}. Consider upgrading.")]
     public void DeprecatedFeatureUsed(string featureName, string source)
     {
         WriteEvent(602, featureName ?? "Unknown", source ?? "Unknown");

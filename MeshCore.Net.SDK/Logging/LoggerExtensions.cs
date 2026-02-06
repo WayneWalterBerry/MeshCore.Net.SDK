@@ -173,6 +173,53 @@ public static partial class LoggerExtensions
         Message = "Frame parsing failed for {RawDataLength} bytes")]
     public static partial void LogFrameParsingFailed(this ILogger logger, Exception exception, int rawDataLength);
 
+    /// <summary>
+    /// Logs raw data received from device (matches CLI's "Received data:" output)
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="rawData">The raw data as hex string</param>
+    [LoggerMessage(
+        EventId = 2008,
+        Level = LogLevel.Debug,
+        Message = "Received data: {RawData}")]
+    public static partial void LogRawDataReceived(this ILogger logger, string rawData);
+
+    /// <summary>
+    /// Logs raw data being sent to device
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="rawData">The raw data as hex string</param>
+    [LoggerMessage(
+        EventId = 2009,
+        Level = LogLevel.Debug,
+        Message = "Sending raw data: {RawData}")]
+    public static partial void LogRawDataSending(this ILogger logger, string rawData);
+
+    /// <summary>
+    /// Logs sending packet with hex representation
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="packet">The packet as hex string</param>
+    /// <param name="length">The packet length</param>
+    [LoggerMessage(
+        EventId = 2010,
+        Level = LogLevel.Debug,
+        Message = "Sending pkt {Packet} (len={Length})")]
+    public static partial void LogSendingPacket(this ILogger logger, string packet, int length);
+
+    /// <summary>
+    /// Logs SYNC_NEXT_MESSAGE response type
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="responseCode">The response code description</param>
+    /// <param name="status">The status value or null</param>
+    /// <param name="payloadLength">The payload length</param>
+    [LoggerMessage(
+        EventId = 2011,
+        Level = LogLevel.Debug,
+        Message = "SYNC_NEXT_MESSAGE response: {ResponseCode} (Status: {Status}) payloadLen={PayloadLength}")]
+    public static partial void LogSyncNextMessageResponse(this ILogger logger, string responseCode, string? status, int payloadLength);
+
     #endregion
 
     #region Contact Logging
@@ -193,12 +240,11 @@ public static partial class LoggerExtensions
     /// </summary>
     /// <param name="logger">The logger instance</param>
     /// <param name="deviceId">The identifier of the device from which contacts were retrieved</param>
-    /// <param name="contactCount">The number of contacts retrieved</param>
     [LoggerMessage(
         EventId = 3002,
         Level = LogLevel.Information,
-        Message = "Contact retrieval completed for device: {DeviceId}. Found {ContactCount} contacts")]
-    public static partial void LogContactRetrievalCompleted(this ILogger logger, string deviceId, int contactCount);
+        Message = "Contact retrieval completed for device: {DeviceId}")]
+    public static partial void LogContactRetrievalCompleted(this ILogger logger, string deviceId);
 
     /// <summary>
     /// Logs when a contact is successfully parsed
@@ -245,6 +291,58 @@ public static partial class LoggerExtensions
         Level = LogLevel.Information,
         Message = "Contact removed: {ContactId}")]
     public static partial void LogContactRemoved(this ILogger logger, string contactId);
+
+    /// <summary>
+    /// Logs detailed contact information matching CLI format
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="publicKey">The contact's public key</param>
+    /// <param name="type">The contact type</param>
+    /// <param name="flags">The contact flags</param>
+    /// <param name="outPathLen">The outbound path length</param>
+    /// <param name="name">The contact name</param>
+    /// <param name="lastAdvert">Last advertisement timestamp</param>
+    /// <param name="lat">Latitude</param>
+    /// <param name="lon">Longitude</param>
+    /// <param name="lastMod">Last modified timestamp</param>
+    [LoggerMessage(
+        EventId = 3007,
+        Level = LogLevel.Debug,
+        Message = "Dispatching contact: PublicKey={PublicKey}, Type={Type}, Flags={Flags}, OutPathLen={OutPathLen}, Name='{Name}', LastAdvert={LastAdvert}, Lat={Lat}, Lon={Lon}, LastMod={LastMod}")]
+    public static partial void LogDispatchingContact(
+        this ILogger logger,
+        string publicKey,
+        int type,
+        int flags,
+        int outPathLen,
+        string name,
+        long lastAdvert,
+        double lat,
+        double lon,
+        long lastMod);
+
+    /// <summary>
+    /// Logs contact retrieval protocol mode
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="deviceId">The device identifier</param>
+    /// <param name="totalCount">Total contact count if known</param>
+    [LoggerMessage(
+        EventId = 3008,
+        Level = LogLevel.Debug,
+        Message = "Device {DeviceId} using standard contact retrieval protocol with total count: {TotalCount}")]
+    public static partial void LogContactRetrievalProtocol(this ILogger logger, string deviceId, int totalCount);
+
+    /// <summary>
+    /// Logs parsing contacts sequence
+    /// </summary>
+    /// <param name="logger">The logger instance</param>
+    /// <param name="deviceId">The device identifier</param>
+    [LoggerMessage(
+        EventId = 3009,
+        Level = LogLevel.Debug,
+        Message = "Parsing contacts sequence for device {DeviceId}")]
+    public static partial void LogParsingContactsSequence(this ILogger logger, string deviceId);
 
     #endregion
 
