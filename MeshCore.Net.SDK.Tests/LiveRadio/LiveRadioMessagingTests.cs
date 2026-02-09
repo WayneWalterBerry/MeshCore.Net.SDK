@@ -35,6 +35,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// - Need correct CMD_SEND_CHANNEL_TXT_MSG payload format (TO BE RESEARCHED)
 /// </summary>
 [Collection("LiveRadio")]
+[Trait("Category", "LiveRadio")] // Enable filtering in CI/CD pipelines
 public class LiveRadioMessagingTests : LiveRadioTestBase
 {
     // Test constants

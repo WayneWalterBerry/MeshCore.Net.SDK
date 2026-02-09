@@ -15,6 +15,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio;
 /// These tests require a physical MeshCore device connected to COM3
 /// </summary>
 [Collection("LiveRadio")] // Ensures tests run sequentially to avoid COM port conflicts
+[Trait("Category", "LiveRadio")] // Enable filtering in CI/CD pipelines
 public class LiveRadioContactApiTests : LiveRadioTestBase
 {
     /// <summary>
