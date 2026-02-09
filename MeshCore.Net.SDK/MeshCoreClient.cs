@@ -1,4 +1,10 @@
-﻿using System.Collections.Concurrent;
+﻿// <copyright file="Advertisement.cs" company="Wayne Walter Berry">
+// Copyright (c) Wayne Walter Berry. All rights reserved.
+// </copyright>
+
+using System.Collections.Concurrent;
+using System.Net.Mime;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using MeshCore.Net.SDK.Exceptions;
@@ -322,19 +328,19 @@ public class MeshCoreClient : IDisposable
             throw ex;
         }
 
-    var data = response.Payload;
-    if (data.Length >= 5) // Need at least 5 bytes: response code (1) + timestamp (4)
-    {
-        var timestamp = BitConverter.ToUInt32(data, 1); // Skip response code at offset 0
-        var deviceTime = DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime;
-        
-        // Log the raw hex data for debugging firmware time issues
-        var hex = BitConverter.ToString(data, 1, 4).Replace("-", string.Empty); // Skip response code
-        _logger.LogDebug("Device time raw payload: {Hex}, decoded timestamp: {Timestamp}, decoded time: {Time}", 
-            hex, timestamp, deviceTime);
-        
-        return deviceTime;
-    }
+        var data = response.Payload;
+        if (data.Length >= 5) // Need at least 5 bytes: response code (1) + timestamp (4)
+        {
+            var timestamp = BitConverter.ToUInt32(data, 1); // Skip response code at offset 0
+            var deviceTime = DateTimeOffset.FromUnixTimeSeconds(timestamp).DateTime;
+
+            // Log the raw hex data for debugging firmware time issues
+            var hex = BitConverter.ToString(data, 1, 4).Replace("-", string.Empty); // Skip response code
+            _logger.LogDebug("Device time raw payload: {Hex}, decoded timestamp: {Timestamp}, decoded time: {Time}",
+                hex, timestamp, deviceTime);
+
+            return deviceTime;
+        }
 
         return default(DateTime);
     }
@@ -367,11 +373,11 @@ public class MeshCoreClient : IDisposable
     /// <returns></returns>
     public async Task<IEnumerable<Contact>> GetContactsAsync(CancellationToken cancellationToken)
     {
-        ConcurrentBag<Contact> contacts = new ConcurrentBag<Contact>();
+        ConcurrentDictionary<ContactPublicKey, Contact> contacts = new ConcurrentDictionary<ContactPublicKey, Contact>();
 
         void OnContactReceived(object? sender, Contact contact)
         {
-            contacts.Add(contact);
+            contacts.TryAdd(contact.PublicKey, contact);
         };
 
         ContactStatusChanged += OnContactReceived;
@@ -385,7 +391,7 @@ public class MeshCoreClient : IDisposable
             ContactStatusChanged -= OnContactReceived;
         }
 
-        return contacts.ToList();
+        return contacts.Values.ToList();
     }
 
     /// <summary>
@@ -399,8 +405,45 @@ public class MeshCoreClient : IDisposable
         _logger.LogContactRetrievalStarted(deviceId);
         MeshCoreSdkEventSource.Log.ContactRetrievalStarted(deviceId);
 
+        void OnFrameReceived(object? sender, MeshCoreFrame frame)
+        {
+            if (!frame.IsOutbound)
+            {
+                return;
+            }
+
+            var frameResponseCode = frame.GetResponseCode();
+
+            if (frameResponseCode == null)
+            {
+                _logger.LogWarning("Received frame with null response code on {DeviceId}. Frame: {Frame}", deviceId, frame);
+            }
+
+            if (frameResponseCode == MeshCoreResponseCode.RESP_CODE_CONTACT)
+            {
+                Contact? contact;
+                if (TryDeserializeContact(frame.Payload, out contact) && (contact != null))
+                {
+                    _logger.LogContactParsed(contact.Name, contact.PublicKey.ToString());
+                    MeshCoreSdkEventSource.Log.ContactParsed(contact.Name, contact.PublicKey.ToString());
+
+                    _logger.LogDebug($"Dispatching contact: {contact}");
+
+                    ContactStatusChanged?.Invoke(this, contact);
+                }
+                else
+                {
+                    _logger.LogWarning("Received contact response could not be parsed for device {DeviceId}", deviceId);
+                }
+            }
+        }
+        ;
+
         try
         {
+            // Subscribe to frame events
+            _transport.FrameReceived += OnFrameReceived;
+
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -544,6 +587,10 @@ public class MeshCoreClient : IDisposable
             // For unexpected errors, we can return an empty list and log the issue
             _logger.LogContactRetrievalCompleted(deviceId);
             MeshCoreSdkEventSource.Log.ContactRetrievalCompleted(deviceId);
+        }
+        finally
+        {
+            _transport.FrameReceived -= OnFrameReceived;
         }
     }
 
@@ -798,6 +845,171 @@ public class MeshCoreClient : IDisposable
 
                 throw ex;
         }
+    }
+
+    /// <summary>
+    /// Gets pending messages from the device queue, similar to getFromOfflineQueue in MyMesh.cpp
+    /// This is the core message retrieval mechanism
+    /// </summary>
+    public async Task SyncronizeQueueAsync(CancellationToken cancellationToken)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        _logger.LogMessageRetrievalStarted(deviceId);
+
+        try
+        {
+            do
+            {
+                var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SYNC_NEXT_MESSAGE, cancellationToken: cancellationToken);
+                var responseCode = response.GetResponseCode();
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                switch (responseCode)
+                {
+                    case MeshCoreResponseCode.RESP_CODE_NO_MORE_MESSAGES:
+                        {
+                            _logger.LogDebug("No more messages in queue for device {DeviceId}", deviceId);
+                            return;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_ERR:
+                        {
+                            _logger.LogWarning("Error response during message sync for device {DeviceId}", deviceId);
+                            return;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV:
+                        {
+                            try
+                            {
+                                Message? message;
+                                if (!MessageLegacySerialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+                                {
+                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
+                                    break;
+                                }
+
+                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
+                                MessageReceived?.Invoke(this, message);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
+                            }
+
+                            continue;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV_V3:
+                        {
+                            try
+                            {
+                                Message? message;
+                                if (!MessageV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+                                {
+                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
+                                    break;
+                                }
+
+                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
+                                MessageReceived?.Invoke(this, message);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
+                            }
+
+                            continue;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV:
+                        {
+                            try
+                            {
+                                Message? message;
+                                if (!MessageChannelLegacySerialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+                                {
+                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
+                                    break;
+                                }
+
+                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
+                                MessageReceived?.Invoke(this, message);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
+                            }
+
+                            continue;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV_V3:
+                        {
+                            try
+                            {
+                                Message? message;
+                                if (!MessageChannelV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+                                {
+                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
+                                    break;
+                                }
+
+                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
+                                MessageReceived?.Invoke(this, message);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
+                            }
+
+                            continue;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_CONTACT:
+                        {
+                            // Handle contact information that can be queued in the offline queue
+                            // This happens when contact iteration is active or contacts are being synchronized
+                            // These are not messages, so we continue without adding to the message list
+                            _logger.LogDebug("Received contact information during message sync for device {DeviceId}, skipping", deviceId);
+
+                            // Trigger the ContactStatusChanged event if there are listeners
+                            try
+                            {
+                                Contact? contact;
+                                if (!TryDeserializeContact(response.Payload, out contact) || (contact == null))
+                                {
+                                    _logger.LogWarning("Failed to parse message for contact {DeviceId}", deviceId);
+                                    break;
+                                }
+
+                                _logger.LogDebug("Retrieved contact from {PublicKey} for device {DeviceId}", contact.PublicKey, deviceId);
+                                ContactStatusChanged?.Invoke(this, contact);
+                            }
+                            catch (Exception parseEx)
+                            {
+                                _logger.LogDebug(parseEx, "Failed to parse contact information during message sync for device {DeviceId}", deviceId);
+                            }
+
+                            // Continue to next iteration - this is not a message
+                            continue;
+                        }
+                    case MeshCoreResponseCode.RESP_CODE_END_OF_CONTACTS:
+                        {
+                            // Handle end of contact iteration that can be queued in the offline queue
+                            _logger.LogDebug("Received end of contacts marker during message sync for device {DeviceId}, skipping", deviceId);
+
+                            // Continue to next iteration - this is not a message
+                            continue;
+                        }
+                }
+
+                // Small delay to prevent overwhelming the device
+                await Task.Delay(50);
+
+            } while (!cancellationToken.IsCancellationRequested);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error during message sync attempt on device {DeviceId}", deviceId);
+        }
+
+        _logger.LogSyncQueueCompleted(deviceId);
     }
 
     #endregion
@@ -1156,8 +1368,7 @@ public class MeshCoreClient : IDisposable
             else
             {
                 // Unexpected response code - log warning but don't fail
-                _logger.LogWarning("Unexpected response code {ResponseCode} for CMD_SEND_CHANNEL_TXT_MSG on device {DeviceId}, expected RESP_CODE_SENT (0x06)",
-                    responseCode, deviceId);
+                _logger.LogWarning("Unexpected response code {ResponseCode} for CMD_SEND_CHANNEL_TXT_MSG on device {DeviceId}, treating as success", responseCode, deviceId);
 
                 // If it's any other success code, treat as success
                 if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
@@ -1340,175 +1551,6 @@ public class MeshCoreClient : IDisposable
 
     #endregion
 
-    #region Messaging
-
-    /// <summary>
-    /// Gets pending messages from the device queue, similar to getFromOfflineQueue in MyMesh.cpp
-    /// This is the core message retrieval mechanism
-    /// </summary>
-    public async Task SyncronizeQueueAsync(CancellationToken cancellationToken)
-    {
-        var deviceId = _transport.ConnectionId ?? "Unknown";
-        _logger.LogMessageRetrievalStarted(deviceId);
-
-        try
-        {
-            do
-            {
-                var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SYNC_NEXT_MESSAGE, cancellationToken: cancellationToken);
-                var responseCode = response.GetResponseCode();
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                switch (responseCode)
-                {
-                    case MeshCoreResponseCode.RESP_CODE_NO_MORE_MESSAGES:
-                        {
-                            _logger.LogDebug("No more messages in queue for device {DeviceId}", deviceId);
-                            return;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_ERR:
-                        {
-                            _logger.LogWarning("Error response during message sync for device {DeviceId}", deviceId);
-                            return;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV:
-                        {
-                            try
-                            {
-                                Message? message;
-                                if (!MessageLegacySerialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
-                                {
-                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
-                                    break;
-                                }
-
-                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
-                            }
-                            catch (Exception parseEx)
-                            {
-                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
-                            }
-
-                            continue;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV_V3:
-                        {
-                            try
-                            {
-                                Message? message;
-                                if (!MessageV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
-                                {
-                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
-                                    break;
-                                }
-
-                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
-                            }
-                            catch (Exception parseEx)
-                            {
-                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
-                            }
-
-                            continue;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV:
-                        {
-                            try
-                            {
-                                Message? message;
-                                if (!MessageChannelLegacySerialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
-                                {
-                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
-                                    break;
-                                }
-
-                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
-                            }
-                            catch (Exception parseEx)
-                            {
-                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
-                            }
-
-                            continue;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_CHANNEL_MSG_RECV_V3:
-                        {
-                            try
-                            {
-                                Message? message;
-                                if (!MessageChannelV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
-                                {
-                                    _logger.LogWarning("Failed to parse message for device {DeviceId}", deviceId);
-                                    break;
-                                }
-
-                                _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
-                            }
-                            catch (Exception parseEx)
-                            {
-                                _logger.LogWarning(parseEx, "Failed to parse message for device {DeviceId}", deviceId);
-                            }
-
-                            continue;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_CONTACT:
-                        {
-                            // Handle contact information that can be queued in the offline queue
-                            // This happens when contact iteration is active or contacts are being synchronized
-                            // These are not messages, so we continue without adding to the message list
-                            _logger.LogDebug("Received contact information during message sync for device {DeviceId}, skipping", deviceId);
-
-                            // Trigger the ContactStatusChanged event if there are listeners
-                            try
-                            {
-                                Contact? contact;
-                                if (!TryDeserializeContact(response.Payload, out contact) || (contact == null))
-                                {
-                                    _logger.LogWarning("Failed to parse message for contact {DeviceId}", deviceId);
-                                    break;
-                                }
-
-                                _logger.LogDebug("Retrieved contact from {PublicKey} for device {DeviceId}", contact.PublicKey, deviceId);
-                                ContactStatusChanged?.Invoke(this, contact);
-                            }
-                            catch (Exception parseEx)
-                            {
-                                _logger.LogDebug(parseEx, "Failed to parse contact information during message sync for device {DeviceId}", deviceId);
-                            }
-
-                            // Continue to next iteration - this is not a message
-                            continue;
-                        }
-                    case MeshCoreResponseCode.RESP_CODE_END_OF_CONTACTS:
-                        {
-                            // Handle end of contact iteration that can be queued in the offline queue
-                            _logger.LogDebug("Received end of contacts marker during message sync for device {DeviceId}, skipping", deviceId);
-
-                            // Continue to next iteration - this is not a message
-                            continue;
-                        }
-                }
-
-                // Small delay to prevent overwhelming the device
-                await Task.Delay(50);
-
-            } while (!cancellationToken.IsCancellationRequested);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Error during message sync attempt on device {DeviceId}", deviceId);
-        }
-
-        _logger.LogSyncQueueCompleted(deviceId);
-    }
-
-    #endregion
-
     #region Configuration Operations
 
     /// <summary>
@@ -1635,7 +1677,9 @@ public class MeshCoreClient : IDisposable
     private async Task SendSelfAdvertAsync(Advertisement advertisement)
     {
         if (advertisement == null)
+        {
             throw new ArgumentNullException(nameof(advertisement));
+        }
 
         var deviceId = _transport.ConnectionId ?? "Unknown";
         var operationName = nameof(SendSelfAdvertAsync);
@@ -1681,7 +1725,6 @@ public class MeshCoreClient : IDisposable
                     MeshCoreStatus.NetworkError => "Network error occurred while sending advertisement",
                     MeshCoreStatus.TimeoutError => "Advertisement sending timed out",
                     MeshCoreStatus.InvalidParameter => "Invalid advertisement parameters",
-                    _ when statusByte == 0x03 => "Device packet table is full and cannot queue advertisement for sending", // ERR_CODE_TABLE_FULL from MyMesh.cpp
                     _ => $"Failed to send self advertisement (status: 0x{statusByte:X2})"
                 };
 
@@ -1996,6 +2039,135 @@ public class MeshCoreClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Discovers the network path to a specific contact using the MeshCore path discovery protocol.
+    /// This sends a CMD_SEND_PATH_DISCOVERY_REQ command and waits for the PATH_RESPONSE event.
+    /// </summary>
+    /// <param name="contact">Contact of Repeater</param>
+    /// <param name="cancellationToken">Cancellation token for the operation</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the discovered path information including inbound and outbound paths.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when publicKey is null</exception>
+    /// <exception cref="ArgumentException">Thrown when publicKey is not exactly 32 bytes long</exception>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error or doesn't support path discovery</exception>
+    /// <exception cref="TimeoutException">Thrown when the path discovery operation times out</exception>
+    public async Task<PathDiscoveryResult?> TryDiscoverPathAsync(Contact contact, CancellationToken cancellationToken = default)
+    {
+        return await SendAsync<PathDiscoveryResult>(
+            MeshCoreCommand.CMD_SEND_PATH_DISCOVERY_REQ,
+            MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE,
+            payloadFunc: () =>
+            {
+                // CMD_SEND_TRACE_PATH expects [reserved_byte][pub_key(32)]
+                var payload = new byte[1 + contact.PublicKey.Value.Length];
+                payload[0] = 0x00; // Reserved byte required by firmware
+                Buffer.BlockCopy(contact.PublicKey.Value, 0, payload, 1, contact.PublicKey.Value.Length);
+                return payload;
+            },
+            PathDiscoveryResultSerialization.Instance,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Attempts to trace the network path to the specified contact asynchronously and returns the ??? if successful.
+    /// </summary>
+    /// <remarks>This method initiates a network trace to the given contact and may return null if the trace
+    /// cannot be completed or no neighbors are found. The operation is performed asynchronously and can be cancelled
+    /// using the provided cancellation token.</remarks>
+    /// <param name="contact">The contact to which the trace operation is directed. Cannot be null.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the trace operation.</param>
+    /// <returns>A NeighborList containing the discovered neighbors if the trace succeeds; otherwise, null.</returns>
+    public async Task<PathDiscoveryResult?> TrySingleHopTraceAsync(
+        Contact contact,
+        CancellationToken cancellationToken = default)
+    {
+        // For repeaters/rooms, we can trace TO them using their pubkey prefix
+        // The path is just the first 1-2 bytes of their pubkey as a hex string
+        // For a single hop, we just need the destination's prefix
+
+        string pathString;
+
+        if (contact.NodeType == NodeType.Repeater || contact.NodeType == NodeType.RoomServer)
+        {
+            // Trace TO the repeater/room itself using its pubkey prefix
+            // Use first byte (2 hex chars) as the destination
+            pathString = contact.PublicKey.Value[0].ToString("x2");
+        }
+        else
+        {
+            // For clients, we can't trace TO them, but we can discover their path
+            // This should use CMD_SEND_PATH_DISCOVERY_REQ instead
+            _logger.LogWarning("Single hop trace not applicable to client contacts, use DiscoverPathAsync instead");
+            return null;
+        }
+
+        return await SendAsync(
+            MeshCoreCommand.CMD_SEND_TRACE_PATH,
+            MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE, // This is Wrong
+            payloadFunc: () =>
+            {
+                // CMD_SEND_TRACE_PATH expects a comma-separated string of hex byte pairs
+                var payload = new byte[1];
+                payload[0] = contact.PublicKey.Value[0];
+                return payload;
+            },
+            PathDiscoveryResultSerialization.Instance,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Attempts to retrieve the list of neighboring contacts from the specified repeater asynchronously.
+    /// </summary>
+    /// <param name="repeaterContact">The contact information for the repeater from which to request the neighbor list. Cannot be null.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains a NeighborList if the neighbor list
+    /// is successfully retrieved and deserialized; otherwise, null.</returns>
+    public async Task<NeighborList?> TryGetNeighborsAsync(
+        Contact repeaterContact,
+        CancellationToken cancellationToken = default)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        var operationName = nameof(TryGetNeighborsAsync);
+
+        try
+        {
+            byte[]? binaryData = await SendRemoteCommandAsync(
+                repeaterContact,
+                "neighbors",
+                cancellationToken);
+
+            if (binaryData == null)
+            {
+                return null;
+            }
+
+            // Deserialize the binary neighbor list data
+            if (NeighborListSerialization.Instance.TryDeserialize(binaryData, out var neighborList))
+            {
+                return neighborList;
+            }
+        }
+        catch (TaskCanceledException ex)
+        {
+            // No response from Contact
+
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+
+            // For neighbor list retrieval, we treat any exception as a failure to get neighbors and return null.
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+
+            // For neighbor list retrieval, we treat any exception as a failure to get neighbors and return null.
+            return null;
+        }
+
+        return null;
+    }
+
     #endregion
 
     #region Auto-Add Contacts Operations
@@ -2049,10 +2221,7 @@ public class MeshCoreClient : IDisposable
                     $"Unexpected response code {response.GetResponseCode()} for auto-add configuration request.");
 
                 _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, statusByte);
-                MeshCoreSdkEventSource.Log.ProtocolError(
-                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
-                    statusByte,
-                    ex.Message);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, statusByte, ex.Message);
 
                 throw ex;
             }
@@ -2064,10 +2233,7 @@ public class MeshCoreClient : IDisposable
                     0x01,
                     "Auto-add configuration payload too short.");
                 _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, 0x01);
-                MeshCoreSdkEventSource.Log.ProtocolError(
-                    (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
-                    0x01,
-                    ex.Message);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, 0x01, ex.Message);
 
                 throw ex;
             }
@@ -2335,6 +2501,454 @@ public class MeshCoreClient : IDisposable
 
     #region Private Methods
 
+    /// <summary>
+    /// Waits asynchronously for a frame with the specified response code to be received, using a dynamic timeout
+    /// provided by the caller.
+    /// </summary>
+    /// <remarks>The wait operation will complete when a matching frame is received or when the timeout
+    /// elapses. If the operation is canceled via the provided cancellation token or the timeout, the returned task will
+    /// be canceled. The method unsubscribes from frame events after completion to prevent memory leaks.</remarks>
+    /// <param name="funcAsync">A delegate that asynchronously computes the timeout duration for the wait operation. The delegate receives a
+    /// cancellation token and returns a task that yields the timeout as a TimeSpan.</param>
+    /// <param name="responseCode">The response code to match against incoming frames. Only frames with this response code will complete the wait
+    /// operation.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the wait operation before completion.</param>
+    /// <returns>A task that represents the asynchronous wait operation. The task result is the received MeshCoreFrame that
+    /// matches the specified response code.</returns>
+    private async Task<MeshCoreFrame> WaitForEventAsync(
+        Func<CancellationToken, Task<TimeSpan>> funcAsync,
+        MeshCoreResponseCode responseCode,
+        CancellationToken cancellationToken)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(WaitForEventAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        TaskCompletionSource<MeshCoreFrame> taskCompleteionSource = new TaskCompletionSource<MeshCoreFrame>();
+
+        void OnFrameReceived(object? sender, MeshCoreFrame frame)
+        {
+            if (!frame.IsOutbound)
+            {
+                return;
+            }
+
+            var frameResponseCode = frame.GetResponseCode();
+
+            if (frameResponseCode == null)
+            {
+                _logger.LogWarning("Received frame with null response code on {DeviceId}. Frame: {Frame}", deviceId, frame);
+            }
+
+            // Check if this is a PATH_RESPONSE frame
+            // You'll need to add RESP_CODE_PATH_RESPONSE to MeshCoreResponseCode enum
+            if (frameResponseCode == responseCode)
+            {
+                taskCompleteionSource.TrySetResult(frame);
+            }
+        }
+        ;
+
+        // Subscribe to frame events
+        _transport.FrameReceived += OnFrameReceived;
+
+        try
+        {
+            TimeSpan timeout = await funcAsync(cancellationToken);
+
+            using (CancellationTokenSource cancellationTokenSource = new CancellationTokenSource(timeout))
+            {
+                using (CancellationTokenSource linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cancellationTokenSource.Token))
+                {
+                    using (linkedCancellationTokenSource.Token.Register(() => taskCompleteionSource.TrySetCanceled()))
+                    {
+                        MeshCoreFrame frame = await taskCompleteionSource.Task;
+
+                        var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                        _logger.LogDebug("Frame Detected on {DeviceId} in {Duration}ms. Path: {PathDescription}",
+                            deviceId, (long)duration, frame);
+
+                        MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+                        return frame;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            // Always unsubscribe to prevent memory leaks
+            _transport.FrameReceived -= OnFrameReceived;
+        }
+    }
+
+    /// <summary>
+    /// Waits asynchronously for an outbound frame with the specified response code to be received after executing the
+    /// provided asynchronous operation.
+    /// </summary>
+    /// <remarks>The method subscribes to frame events and waits for a matching outbound frame after executing
+    /// the provided operation. The event subscription is removed when the operation completes or is canceled to prevent
+    /// memory leaks. If cancellation is requested before a matching frame is received, the returned task will be
+    /// canceled.</remarks>
+    /// <param name="funcAsync">A delegate representing the asynchronous operation to execute before waiting for the frame. The operation
+    /// receives a cancellation token and should complete before the frame is awaited.</param>
+    /// <param name="responseCode">The response code to match against received outbound frames. Only frames with this response code will be
+    /// considered.</param>
+    /// <param name="cancellationToken">A token that can be used to cancel the wait operation. If cancellation is requested, the task will be canceled.</param>
+    /// <returns>A task that represents the asynchronous wait operation. The task result contains the outbound frame matching the
+    /// specified response code.</returns>
+    private async Task<MeshCoreFrame> WaitForEventAsync(
+        Func<CancellationToken, Task> funcAsync,
+        MeshCoreResponseCode responseCode,
+        CancellationToken cancellationToken)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(WaitForEventAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        TaskCompletionSource<MeshCoreFrame> taskCompleteionSource = new TaskCompletionSource<MeshCoreFrame>();
+
+        void OnFrameReceived(object? sender, MeshCoreFrame frame)
+        {
+            if (!frame.IsOutbound)
+            {
+                return;
+            }
+
+            var frameResponseCode = frame.GetResponseCode();
+
+            if (frameResponseCode == responseCode)
+            {
+                taskCompleteionSource.TrySetResult(frame);
+            }
+        }
+        ;
+
+        // Subscribe to frame events
+        _transport.FrameReceived += OnFrameReceived;
+
+        try
+        {
+            await funcAsync(cancellationToken);
+
+            using (cancellationToken.Register(() => taskCompleteionSource.TrySetCanceled()))
+            {
+                MeshCoreFrame frame = await taskCompleteionSource.Task;
+
+                var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogDebug("Frame Detected on {DeviceId} in {Duration}ms. Path: {PathDescription}",
+                    deviceId, (long)duration, frame);
+
+                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+                return frame;
+            }
+        }
+        finally
+        {
+            // Always unsubscribe to prevent memory leaks
+            _transport.FrameReceived -= OnFrameReceived;
+        }
+    }
+
+    /// <summary>
+    /// Sends a text command to a remote repeater/room server node and waits for a binary data response.
+    /// This is used for remote CLI operations like requesting neighbor lists, status, telemetry, etc.
+    /// </summary>
+    /// <param name="contact">The contact (repeater/room server) to send the command to</param>
+    /// <param name="command">The CLI command text to execute on the remote node</param>
+    /// <param name="cancellationToken">Cancellation token for the operation</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the binary response payload from the remote node.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when contact or command is null</exception>
+    /// <exception cref="ArgumentException">Thrown when command is empty</exception>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error</exception>
+    /// <exception cref="TimeoutException">Thrown when the operation times out waiting for response</exception>
+    private async Task<byte[]?> SendRemoteCommandAsync(
+        Contact contact,
+        string command,
+        CancellationToken cancellationToken = default)
+    {
+        if (contact == null)
+        {
+            throw new ArgumentNullException(nameof(contact));
+        }
+
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            throw new ArgumentException("Command cannot be null or empty", nameof(command));
+        }
+
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(SendRemoteCommandAsync);
+        DateTime startTime = DateTime.UtcNow;
+
+        try
+        {
+            // Create a command
+            var commandPayload = Command.Create(contact.PublicKey, command);
+
+            // Serialize it
+            var payloadArray = CommandSerialization.Instance.Serialize(commandPayload);
+
+            _logger.LogDebug(
+                "Sending CMD_SEND_TXT_MSG with txt_type=0x01 (command) to {ContactName}, command: {Command}",
+                contact.Name,
+                command);
+
+            // Use WaitForEventAsync pattern to send command and wait for RESP_CODE_CONTACT_MSG_RECV
+            var frame = await WaitForEventAsync(async (ct) =>
+            {
+                _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, deviceId);
+                MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, deviceId);
+
+                var response = await _transport.SendCommandAsync(
+                    MeshCoreCommand.CMD_SEND_TXT_MSG,
+                    payloadArray,
+                    ct);
+
+                _logger.LogResponseReceived(
+                    (byte)MeshCoreCommand.CMD_SEND_TXT_MSG,
+                    response.Payload.FirstOrDefault(),
+                    deviceId);
+
+                MeshCoreSdkEventSource.Log.ResponseReceived(
+                    (byte)MeshCoreCommand.CMD_SEND_TXT_MSG,
+                    response.Payload.FirstOrDefault(),
+                    deviceId);
+
+                var responseCode = response.GetResponseCode();
+
+                switch (responseCode)
+                {
+                    case MeshCoreResponseCode.RESP_CODE_SENT:
+                        {
+                            // Byte Offset  | Field                | Size
+                            // ------------ | ---------------------| ------
+                            // 0            | RESP_CODE(0x06)      | 1
+                            // 1 - 4        | expected_ack         | 4
+                            // 5 - 8        | suggested_timeout    | 4 (little - endian uint32, in milliseconds)
+
+                            _logger.LogDebug(
+                                "RESP_CODE_SENT payload hex: {PayloadHex}, length: {Length}",
+                                Convert.ToHexString(response.Payload),
+                                response.Payload.Length);
+
+                            if (response.Payload.Length >= 5)
+                            {
+                                var expected_ack = BitConverter.ToUInt32(response.Payload, 5);
+                            }
+
+                            // Extract suggested timeout from response if available, or use provided/default timeout
+                            TimeSpan effectiveTimeout = TimeSpan.FromSeconds(30);
+
+                            // Response payload for RESP_CODE_SENT typically contains suggested_timeout at bytes [1..4]
+                            if (response.Payload.Length >= 9)
+                            {
+                                try
+                                {
+                                    var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 5);
+                                    if (suggestedTimeoutMs > 0)
+                                    {
+                                        effectiveTimeout = TimeSpan.FromMilliseconds(suggestedTimeoutMs * 1.2);
+                                        _logger.LogDebug(
+                                            "Using device suggested timeout: {TimeoutMs}ms for remote command response",
+                                            effectiveTimeout.TotalMilliseconds);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, "Could not parse suggested timeout from command response, using default");
+                                }
+                            }
+
+                            _logger.LogDebug(
+                                "Remote command sent successfully to {ContactName}, waiting for RESP_CODE_CONTACT_MSG_RECV with timeout: {Timeout}ms",
+                                contact.Name,
+                                effectiveTimeout.TotalMilliseconds);
+
+                            return effectiveTimeout;
+                        }
+
+                    case MeshCoreResponseCode.RESP_CODE_ERR:
+                        {
+                            var status = response.GetStatus();
+                            var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                            var errorMessage = status switch
+                            {
+                                MeshCoreStatus.InvalidCommand => "Send text message command not supported by this device firmware",
+                                MeshCoreStatus.InvalidParameter => "Invalid contact or command parameters",
+                                MeshCoreStatus.DeviceError => "Device is in an error state and cannot send command",
+                                MeshCoreStatus.NetworkError => "Network error occurred while sending command",
+                                MeshCoreStatus.TimeoutError => "Command sending timed out",
+                                _ => $"Failed to send remote command (status: 0x{statusByte:X2})"
+                            };
+
+                            var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte, errorMessage);
+                            _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte);
+                            MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte, ex.Message);
+                            throw ex;
+                        }
+
+                    default:
+                        {
+                            var errorMessage = $"Unexpected response code {responseCode} for remote command. Expected RESP_CODE_SENT ({(byte)MeshCoreResponseCode.RESP_CODE_SENT:X2}).";
+                            var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, errorMessage);
+                            _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01);
+                            MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, ex.Message);
+                            throw ex;
+                        }
+                }
+
+            }, MeshCoreResponseCode.RESP_CODE_CONTACT_MSG_RECV, cancellationToken);
+
+            // Extract binary payload from the message response
+            // The frame payload structure is: [RESP_CODE][sender_pubkey_prefix(7)][txt_type][timestamp(4)][data...]
+            // We need to skip the header and extract the actual binary data
+            if (frame.Payload.Length < 13) // Minimum: 1 (resp) + 7 (key) + 1 (type) + 4 (timestamp)
+            {
+                _logger.LogWarning(
+                    "Received response from {ContactName} but payload too short: {Length} bytes",
+                    contact.Name,
+                    frame.Payload.Length);
+                return null;
+            }
+
+            // Skip: response code (1) + pubkey_prefix (7) + txt_type (1) + timestamp (4) = 13 bytes
+            var dataOffset = 13;
+            var dataLength = frame.Payload.Length - dataOffset;
+            var binaryData = new byte[dataLength];
+            Buffer.BlockCopy(frame.Payload, dataOffset, binaryData, 0, dataLength);
+
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            _logger.LogDebug(
+                "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. Received {DataLength} bytes from {ContactName}",
+                operationName,
+                deviceId,
+                (long)duration,
+                dataLength,
+                contact.Name);
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+            return binaryData;
+        }
+        catch (Exception ex) when (!(ex is ProtocolException) && !(ex is TimeoutException) && !(ex is OperationCanceledException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    private async Task<T?> SendAsync<T>(
+        MeshCoreCommand meshCoreCommand,
+        MeshCoreResponseCode meshCoreResponseCode,
+        Func<byte[]> payloadFunc,
+        IBinaryDeserializer<T> binaryDeserializer,
+        CancellationToken cancellationToken = default)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(SendAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            // CMD_SEND_TRACE_PATH expects [reserved_byte][pub_key(32)]
+            var payload = payloadFunc();
+            _logger.LogDebug("{Payload}", Convert.ToHexString(payload));
+
+            var frame = await WaitForEventAsync(async (cancellationToken) =>
+            {
+                // Send CMD_SEND_TRACE_PATH 
+                _logger.LogCommandSending((byte)meshCoreCommand, deviceId);
+                MeshCoreSdkEventSource.Log.CommandSending((byte)meshCoreCommand, deviceId);
+
+                var response = await _transport.SendCommandAsync(
+                    meshCoreCommand,
+                    payload,
+                    cancellationToken);
+
+                _logger.LogResponseReceived((byte)meshCoreCommand, response.Payload.FirstOrDefault(), deviceId);
+                MeshCoreSdkEventSource.Log.ResponseReceived((byte)meshCoreCommand, response.Payload.FirstOrDefault(), deviceId);
+
+                var responseCode = response.GetResponseCode();
+                if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
+                {
+                    var status = response.GetStatus();
+                    var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                    if (status == MeshCoreStatus.InvalidCommand)
+                    {
+                        var investigationMessage = $"CMD_SEND_TRACE_PATH returned InvalidCommand (status 0x{statusByte:X2}). " +
+                            $"This indicates a calling pattern issue requiring investigation:\n" +
+                            $"  • Payload sent: {Convert.ToHexString(payload)}\n" +
+                            $"  • Payload length: {payload.Length} bytes\n" +
+                            $"This is typically an implementation issue, not a firmware limitation.";
+
+                        _logger.LogError(investigationMessage);
+
+                        var ex = new ProtocolException((byte)meshCoreCommand, statusByte, investigationMessage);
+                        _logger.LogProtocolError(ex, (byte)meshCoreCommand, statusByte);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)meshCoreCommand, statusByte, ex.Message);
+                        throw ex;
+                    }
+
+                    var errorMessage = status switch
+                    {
+                        MeshCoreStatus.InvalidParameter => "Invalid public key supplied for path discovery",
+                        MeshCoreStatus.DeviceError => "Device is in an error state and cannot perform path discovery",
+                        MeshCoreStatus.NetworkError => "Network error occurred during path discovery",
+                        MeshCoreStatus.TimeoutError => "Device timeout during path discovery initiation",
+                        _ => $"Failed to initiate path discovery (status: 0x{statusByte:X2})"
+                    };
+
+                    var ex2 = new ProtocolException((byte)meshCoreCommand, statusByte, errorMessage);
+                    _logger.LogProtocolError(ex2, (byte)meshCoreCommand, statusByte);
+                    MeshCoreSdkEventSource.Log.ProtocolError((byte)meshCoreCommand, statusByte, ex2.Message);
+                    throw ex2;
+                }
+
+                // Extract suggested timeout from initial response (if available)
+                TimeSpan effectiveTimeout = TimeSpan.FromSeconds(30); // Default fallback
+                if (response.Payload.Length >= 5)
+                {
+                    try
+                    {
+                        var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 1);
+                        if (suggestedTimeoutMs > 0 && suggestedTimeoutMs < 60000)
+                        {
+                            effectiveTimeout = TimeSpan.FromMilliseconds(suggestedTimeoutMs);
+                            _logger.LogDebug("Using device suggested timeout: {TimeoutMs}ms for path discovery", effectiveTimeout.TotalMilliseconds);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Could not parse suggested timeout from path discovery response, using default");
+                    }
+                }
+
+                _logger.LogDebug("Path discovery initiated successfully, waiting for PATH_RESPONSE event with timeout: {Timeout}ms",
+                    effectiveTimeout.TotalMilliseconds);
+
+                return effectiveTimeout;
+
+            }, meshCoreResponseCode, cancellationToken);
+
+            binaryDeserializer.TryDeserialize(frame.Payload, out T? result);
+
+            return result;
+        }
+        catch (Exception ex) when (!(ex is ProtocolException) && !(ex is TimeoutException) && !(ex is OperationCanceledException))
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
     private async Task InitializeDeviceAsync()
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
@@ -2460,19 +3074,9 @@ public class MeshCoreClient : IDisposable
         return 0;
     }
 
-    private static DeviceInfo ParseDeviceInfo(byte[] data)
-    {
-        return DeviceInfoSerialization.Instance.Deserialize(data);
-    }
-
     private static bool TryDeserializeContact(byte[] data, out Contact? contact)
     {
         return ContactSerialization.Instance.TryDeserialize(data, out contact);
-    }
-
-    private static DeviceConfiguration? DeserializeDeviceConfiguration(byte[] data)
-    {
-        return DeviceSerialization.Instance.Deserialize(data);
     }
 
     private static byte[] SerializeConfiguration(DeviceConfiguration config)

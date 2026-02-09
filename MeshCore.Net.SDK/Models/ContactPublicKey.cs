@@ -57,5 +57,66 @@ namespace MeshCore.Net.SDK.Models
                 return Convert.ToHexString(new byte[32]); // Return all zeros as fallback
             }
         }
+
+        /// <summary>
+        /// Determines whether the specified ContactPublicKey is equal to the current instance by comparing the byte array values.
+        /// </summary>
+        /// <param name="other">The ContactPublicKey to compare with the current instance.</param>
+        /// <returns>true if the byte arrays are equal; otherwise, false.</returns>
+        public bool Equals(ContactPublicKey other)
+        {
+            if (Value == null && other.Value == null)
+            {
+                return true;
+            }
+
+            if (Value == null || other.Value == null)
+            {
+                return false;
+            }
+
+            if (Value.Length != other.Value.Length)
+            {
+                return false;
+            }
+
+            return Value.SequenceEqual(other.Value);
+        }
+
+        /// <inheritdoc/>
+        public override int GetHashCode()
+        {
+            if (Value == null)
+            {
+                return 0;
+            }
+
+            // Use HashCode.Combine for the first few bytes for performance
+            // Since the key is 32 bytes, we'll hash chunks to balance performance and distribution
+            var hash = new HashCode();
+
+            // Hash first 8 bytes (or less if array is smaller)
+            int length = Math.Min(8, Value.Length);
+            for (int i = 0; i < length; i++)
+            {
+                hash.Add(Value[i]);
+            }
+
+            // Hash middle bytes for better distribution
+            if (Value.Length > 16)
+            {
+                hash.Add(Value[16]);
+                hash.Add(Value[17]);
+            }
+
+            // Hash last bytes
+            if (Value.Length > 24)
+            {
+                hash.Add(Value[Value.Length - 1]);
+                hash.Add(Value[Value.Length - 2]);
+            }
+
+            return hash.ToHashCode();
+        }
     }
 }

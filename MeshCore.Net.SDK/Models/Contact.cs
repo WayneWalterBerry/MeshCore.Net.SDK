@@ -2,7 +2,6 @@
 // Copyright (c) Wayne Walter Berry. All rights reserved.
 // </copyright>
 
-
 namespace MeshCore.Net.SDK.Models
 {
     using System.Text.Json;

@@ -288,6 +288,10 @@ public class UsbTransport : ITransport
                     responseCode == MeshCoreResponseCode.RESP_CODE_OK ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
+                MeshCoreCommand.CMD_SEND_PATH_DISCOVERY_REQ =>
+                    responseCode == MeshCoreResponseCode.RESP_CODE_SENT ||
+                    responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+
                 MeshCoreCommand.CMD_ADD_UPDATE_CONTACT =>
                     responseCode == MeshCoreResponseCode.RESP_CODE_OK ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
@@ -465,7 +469,9 @@ public class UsbTransport : ITransport
         frame = null;
 
         if (buffer.Count < ProtocolConstants.FRAME_HEADER_SIZE)
+        {
             return false;
+        }
 
         // Look for start byte
         var startIndex = -1;

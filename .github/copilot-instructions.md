@@ -12,8 +12,9 @@ This document outlines the coding standards, conventions, and best practices for
 - **Silent by Default**: Libraries should not produce output unless explicitly configured
 - **Abstraction-Based**: Use `ILogger`/`ILoggerFactory` abstractions, never concrete implementations
 - **Optional Logging**: Always provide no-op defaults when loggers are not supplied
-- **API Compatibility**: Assume all documented MeshCore APIs are supported on current firmware when testing; implement graceful fallbacks rather than assuming unavailability
-- **Graceful Degradation**: When APIs return InvalidCommand, implement fallback mechanisms to maintain functionality
+- **API Compatibility**: Assume all documented MeshCore APIs are supported on current firmware when testing
+- **Investigate Before Fallback**: When APIs return InvalidCommand, investigate the calling pattern, payload format, and protocol requirements before assuming unsupported functionality
+- **Protocol Compliance**: Ensure commands follow the exact payload structure, parameter order, and data types specified in the MeshCore protocol documentation
 - **Testing Assumption**: For testing purposes, assume firmware is always up to date and supports all documented features
 
 ## ?? Code Style
@@ -212,45 +213,50 @@ Console.WriteLine("  ?? Error for COM3: UnauthorizedAccess - Access denied");
 - Always include meaningful error messages
 - Preserve original exceptions when wrapping: `throw new CustomException("Message", originalException)`
 
-#### API Compatibility and Fallback Patterns
+#### API Compatibility and Error Investigation
 - **Assumption**: All documented MeshCore protocol APIs are supported on current firmware
-- **InvalidCommand Responses**: When receiving InvalidCommand status, implement graceful fallbacks rather than assuming the API is unsupported
-- **Fallback Strategy**: Provide alternative implementations that achieve similar functionality using supported commands
-- **User Experience**: Ensure fallbacks are transparent to the user while logging the fallback usage for debugging
-- **Fallback Appropriateness**: Do not implement fallbacks that could compromise user intent or send data to unintended recipients (e.g., don't fallback channel messaging to broadcast messaging)
-- **Clear Failures**: When a specific feature is not supported and no appropriate fallback exists, throw a clear `NotSupportedException` rather than attempting inappropriate workarounds
+- **InvalidCommand Investigation**: When receiving InvalidCommand status, the issue is almost always in how we're calling the API, not lack of support. Thoroughly investigate the implementation:
+  - **Payload Structure**: Verify the command payload exactly matches the protocol specification
+  - **Parameter Types**: Ensure all parameters use correct data types (little-endian integers, UTF-8 strings, etc.)
+  - **Parameter Order**: Confirm parameters are sent in the exact order specified in the protocol
+  - **Length Fields**: Validate that length fields accurately reflect payload sizes
+  - **Protocol Version**: Check if the command requires specific protocol version negotiation
+  - **Timing Requirements**: Some commands may require specific timing or sequencing
+  - **Device State**: Verify the device is in the correct state for the command
+- **Research Protocol**: Consult protocol documentation, reference implementations (like Python CLI), and device logs to understand correct usage
+- **No Immediate Fallbacks**: Do not implement fallback mechanisms when receiving InvalidCommand - this masks the real issue
+- **Investigation Required**: Always investigate and fix the calling pattern rather than assuming the feature is unsupported
+- **Clear Error Messages**: Provide detailed error messages that help identify what aspect of the call needs investigation
 
 ```csharp
-// ? Good: Graceful fallback implementation for appropriate scenarios
+// ? Good: Investigate and provide debugging information
 if (status == MeshCoreStatus.InvalidCommand)
 {
-    _logger.LogWarning("Device {DeviceId} returned InvalidCommand for {Command}, attempting fallback", deviceId, commandName);
+    // Log the exact payload sent for investigation
+    _logger.LogError("Device {DeviceId} returned InvalidCommand for {Command}. " +
+        "This indicates a calling pattern issue. Sent payload: {Payload}", 
+        deviceId, commandName, Convert.ToHexString(sentPayload));
     
-    try
-    {
-        // Only fallback if it maintains the same user intent
-        return await FallbackImplementation();
-    }
-    catch (Exception fallbackEx)
-    {
-        _logger.LogError(fallbackEx, "Fallback also failed for device {DeviceId}", deviceId);
-        var combinedMessage = $"Primary method failed and fallback failed. Original: {originalError}. Fallback: {fallbackEx.Message}";
-        throw new ProtocolException(command, statusByte, combinedMessage);
-    }
+    // Provide detailed error message for investigation
+    var investigationMessage = $"{commandName} returned InvalidCommand. " +
+        $"This typically indicates an issue with payload structure, parameter order, or timing. " +
+        $"Sent payload: {Convert.ToHexString(sentPayload)}. " +
+        $"Review protocol specification and reference implementations.";
+    
+    throw new ProtocolException((byte)command, (byte)status, investigationMessage);
 }
 
-// ? Good: Clear failure when no appropriate fallback exists
+// ? Avoid: Implementing fallbacks that mask the real issue
 if (status == MeshCoreStatus.InvalidCommand)
 {
-    _logger.LogError("Device {DeviceId} does not support {Command}", deviceId, commandName);
-    throw new NotSupportedException($"{commandName} is not supported by this device firmware. Device {deviceId} does not recognize this command.");
+    _logger.LogWarning("Command not supported, trying fallback");
+    return await FallbackImplementation(); // This prevents investigation of the calling pattern issue
 }
 
-// ? Avoid: Inappropriate fallbacks that compromise user intent
+// ? Avoid: Assuming unsupported without investigation
 if (status == MeshCoreStatus.InvalidCommand)
 {
-    // Don't send channel messages to different recipients
-    return await SendToBroadcastInstead(); // This changes the intended recipients!
+    throw new NotSupportedException($"{commandName} not supported by device"); // Likely wrong assumption
 }
 ```
 
@@ -535,3 +541,43 @@ while (true)
 **Note**: These guidelines should be considered living documentation. As the project evolves, update this document to reflect new patterns and lessons learned.
 
 **Critical Reminder**: The project has CS1591 warnings enabled which require XML documentation for ALL public APIs. This is enforced at build time to ensure comprehensive API documentation.
+
+### API Investigation Guidelines
+
+When implementing MeshCore protocol commands, assume all documented APIs are supported by current firmware. When commands return `InvalidCommand`, this indicates a calling pattern issue that requires investigation, not a fallback mechanism.
+
+#### Investigation Process for InvalidCommand Responses
+
+1. **Document the Call**: Log the exact command, payload, and parameters sent
+2. **Compare to Specification**: Verify against protocol documentation and reference implementations
+3. **Check Payload Format**: Ensure correct byte order, data types, and structure
+4. **Verify Prerequisites**: Confirm device state and any required setup
+5. **Test with Reference**: Compare with Python CLI or other working implementations
+6. **Fix the Call**: Correct the calling pattern rather than implementing workarounds
+
+#### Example Investigation Workflow
+
+```csharp
+// When implementing a new command that returns InvalidCommand
+public async Task<T> NewCommandAsync(parameters...)
+{
+    // Log the exact call being made
+    _logger.LogDebug("Sending {Command} with payload: {Payload}", 
+        nameof(NewCommandAsync), Convert.ToHexString(payload));
+        
+    var response = await _transport.SendCommandAsync(command, payload, cancellationToken);
+    
+    if (response.GetStatus() == MeshCoreStatus.InvalidCommand)
+    {
+        // Provide investigation guidance, not fallbacks
+        var message = $"{nameof(NewCommandAsync)} returned InvalidCommand. " +
+            $"Investigation needed: payload={Convert.ToHexString(payload)}, " +
+            $"expected_format=[document expected format], " +
+            $"reference_implementation=[link to working example]";
+            
+        throw new ProtocolException((byte)command, (byte)status, message);
+    }
+    
+    // Process successful response
+    return ProcessResponse(response);
+}

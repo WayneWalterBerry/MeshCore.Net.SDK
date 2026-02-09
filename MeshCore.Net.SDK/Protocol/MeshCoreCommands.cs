@@ -440,7 +440,24 @@ public enum MeshCoreResponseCode : byte
     /// <summary>
     /// Auto-add configuration response
     /// </summary>
-    RESP_CODE_AUTOADD_CONFIG = 25
+    RESP_CODE_AUTOADD_CONFIG = 25,
+
+    /// <summary>
+    /// Path discovery response containing discovered route information (asynchronous push notification)
+    /// This is sent asynchronously when path discovery completes, not as an immediate command response.
+    /// Wire protocol value: 0x8D (141 decimal)
+    /// </summary>
+    RESP_CODE_PATH_RESPONSE = 0x8D,
+
+    /// <summary>
+    /// Log RX data push notification
+    /// </summary>
+    RESP_CODE_LOG_RX_DATA = 0x88,
+
+    /// <summary>
+    /// Advertisement push notification
+    /// </summary>
+    RESP_CODE_ADVERT = 0x80,
 }
 
 /// <summary>
