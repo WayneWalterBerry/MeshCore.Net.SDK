@@ -1,4 +1,4 @@
-name: Build and Release
+﻿name: Build and Release
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
         fetch-depth: 0 # Fetch all history for GitVersion
     
     - name: Setup .NET
-      uses: actions/setup-dotenv@v4
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
     
@@ -128,19 +128,19 @@ jobs:
         body: |
           ## MeshCore.Net.SDK ${{ steps.version.outputs.version }}
           
-          ### ? Features
+          ### 🚀 Features
           - Complete C# SDK for MeshCore devices
           - USB serial protocol implementation
           - Async/await support with modern C# patterns
           - Real-time event notifications
           - Cross-platform compatibility (.NET 8)
           
-          ### ?? Installation
+          ### 📦 Installation
           ```bash
           dotnet add package MeshCore.Net.SDK --version ${{ steps.version.outputs.version }}
           ```
           
-          ### ?? Quick Start
+          ### 🚀 Quick Start
           ```csharp
           using MeshCore.Net.SDK;
           
@@ -152,7 +152,7 @@ jobs:
           Console.WriteLine($"Connected to: {deviceInfo.DeviceId}");
           ```
           
-          ### ?? What's Changed
+          ### 📝 What's Changed
           - See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes
           
           **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.version.outputs.version }}...main
