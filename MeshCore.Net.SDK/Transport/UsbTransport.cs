@@ -1,6 +1,4 @@
 ﻿using System.IO.Ports;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using MeshCore.Net.SDK.Protocol;
 using MeshCore.Net.SDK.Exceptions;
 using MeshCore.Net.SDK.Logging;
@@ -15,7 +13,6 @@ public class UsbTransport : ITransport
     private readonly SerialPort _serialPort;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly CancellationTokenSource _cancellationTokenSource = new();
-    private readonly ILogger<UsbTransport> _logger;
     private bool _disposed;
 
     /// <summary>
@@ -43,11 +40,8 @@ public class UsbTransport : ITransport
     /// </summary>
     /// <param name="portName">The name of the serial port (e.g., "COM3")</param>
     /// <param name="baudRate">The baud rate for communication (default: 115200)</param>
-    /// <param name="loggerFactory">Optional logger factory for diagnostic logging</param>
-    public UsbTransport(string portName, int baudRate = 115200, ILoggerFactory? loggerFactory = null)
+    public UsbTransport(string portName, int baudRate = 115200)
     {
-        _logger = loggerFactory?.CreateLogger<UsbTransport>() ?? NullLogger<UsbTransport>.Instance;
-
         _serialPort = new SerialPort(portName, baudRate)
         {
             DataBits = 8,
@@ -58,7 +52,7 @@ public class UsbTransport : ITransport
             WriteTimeout = 1000
         };
 
-        _logger.LogDebug("USB Transport created for port {PortName} at {BaudRate} baud", portName, baudRate);
+        MeshCoreSdkEventSource.Log.UsbTransportCreated(portName, baudRate);
     }
 
     /// <summary>
@@ -67,13 +61,12 @@ public class UsbTransport : ITransport
     public async Task ConnectAsync()
     {
         var portName = _serialPort.PortName;
-        _logger.LogDeviceConnectionStarted(portName, "USB");
         MeshCoreSdkEventSource.Log.DeviceConnectionStarted(portName, "USB");
 
         try
         {
             _serialPort.Open();
-            _logger.LogDebug("Serial port {PortName} opened successfully", portName);
+            MeshCoreSdkEventSource.Log.SerialPortOpened(portName);
 
             // Start the receive loop
             _ = Task.Run(ReceiveLoop, _cancellationTokenSource.Token);
@@ -81,12 +74,10 @@ public class UsbTransport : ITransport
             // Wait a moment for the connection to stabilize
             await Task.Delay(100);
 
-            _logger.LogDeviceConnectionSucceeded(portName, "USB");
             MeshCoreSdkEventSource.Log.DeviceConnectionSucceeded(portName, "USB");
         }
         catch (Exception ex)
         {
-            _logger.LogDeviceConnectionFailed(ex, portName, "USB");
             MeshCoreSdkEventSource.Log.DeviceConnectionFailed(portName, "USB", ex.Message);
             throw new DeviceConnectionException(ConnectionId, ex);
         }
@@ -98,19 +89,18 @@ public class UsbTransport : ITransport
     public void Disconnect()
     {
         var portName = _serialPort?.PortName ?? "Unknown";
-        _logger.LogDebug("Disconnecting from {PortName}", portName);
+        MeshCoreSdkEventSource.Log.DisconnectingFrom(portName);
 
         try
         {
             _cancellationTokenSource.Cancel();
             _serialPort?.Close();
 
-            _logger.LogDeviceDisconnected(portName);
             MeshCoreSdkEventSource.Log.DeviceDisconnected(portName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during disconnect from {PortName}", portName);
+            MeshCoreSdkEventSource.Log.DisconnectError(portName, ex.Message);
             ErrorOccurred?.Invoke(this, ex);
         }
     }
@@ -131,16 +121,16 @@ public class UsbTransport : ITransport
         try
         {
             var hex = BitConverter.ToString(frameBytes).Replace("-", string.Empty);
-            _logger.LogInformation("Sending pkt {Hex} (len={Len})", hex, frame.Length);
+            MeshCoreSdkEventSource.Log.SendingPacket(hex, frame.Length);
 
             await _serialPort.BaseStream.WriteAsync(frameBytes, 0, frameBytes.Length);
             await _serialPort.BaseStream.FlushAsync();
 
-            _logger.LogTrace("Frame sent successfully to {PortName}", portName);
+            MeshCoreSdkEventSource.Log.FrameSentSuccessfully(portName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send frame to {PortName}", portName);
+            MeshCoreSdkEventSource.Log.FrameSendFailed(portName, ex.Message);
             throw;
         }
         finally
@@ -167,7 +157,6 @@ public class UsbTransport : ITransport
 
         var portName = _serialPort.PortName;
 
-        _logger.LogCommandSending((byte)command, portName);
         MeshCoreSdkEventSource.Log.CommandSending((byte)command, portName);
 
         // Build payload: command byte + data
@@ -176,7 +165,7 @@ public class UsbTransport : ITransport
         Array.Copy(data, 0, payload, 1, data.Length);
 
         var hex = BitConverter.ToString(data).Replace("-", string.Empty);
-        _logger.LogInformation("Sending raw data: {CommandByte:X2}", (byte)command);
+        MeshCoreSdkEventSource.Log.RawDataSending(hex);
 
         var frame = MeshCoreFrame.CreateInbound(payload);
 
@@ -190,18 +179,13 @@ public class UsbTransport : ITransport
         {
             var response = await responseTask.ConfigureAwait(false);
 
-            _logger.LogCommandSent((byte)command, portName);
-            _logger.LogResponseReceived((byte)command, response.Payload.FirstOrDefault(), portName);
+            MeshCoreSdkEventSource.Log.CommandSent((byte)command, portName);
+            MeshCoreSdkEventSource.Log.ResponseReceived((byte)command, response.Payload.FirstOrDefault(), portName);
 
             return response;
         }
         catch (MeshCoreTimeoutException)
         {
-            _logger.LogWarning(
-                "Command {Command} to device {DeviceId} timed out or was canceled",
-                (byte)command,
-                portName);
-
             MeshCoreSdkEventSource.Log.CommandTimeout((byte)command, portName, 0);
             throw;
         }
@@ -356,11 +340,9 @@ public class UsbTransport : ITransport
             }
             else
             {
-                // Log unexpected response for debugging
-                _logger.LogWarning(
-                    "Unexpected response code {ResponseCode} for command {Command} on device {DeviceId}",
-                    responseCode,
-                    expectedCommand,
+                MeshCoreSdkEventSource.Log.UnexpectedResponseCode(
+                    (byte)responseCode,
+                    (byte)expectedCommand,
                     _serialPort?.PortName ?? "Unknown");
             }
         }
@@ -395,7 +377,7 @@ public class UsbTransport : ITransport
         var frameBuffer = new List<byte>();
         var portName = _serialPort.PortName;
 
-        _logger.LogDebug("Starting receive loop for {PortName}", portName);
+        MeshCoreSdkEventSource.Log.ReceiveLoopStarted(portName);
 
         while (!_cancellationTokenSource.Token.IsCancellationRequested)
         {
@@ -418,7 +400,7 @@ public class UsbTransport : ITransport
                     buffer, 0, Math.Min(bytesToRead, buffer.Length), _cancellationTokenSource.Token);
 
                 var hex = BitConverter.ToString(buffer, 0, bytesRead).Replace("-", string.Empty);
-                _logger.LogDebug("Received data: {Data}", hex);
+                MeshCoreSdkEventSource.Log.RawDataReceived(hex);
 
                 for (int i = 0; i < bytesRead; i++)
                 {
@@ -427,7 +409,6 @@ public class UsbTransport : ITransport
                     // Try to parse a complete frame
                     if (TryParseFrame(frameBuffer, out var frame) && frame != null)
                     {
-                        _logger.LogFrameParsed(frame.StartByte, frame.Length, frame.Payload.Length);
                         MeshCoreSdkEventSource.Log.FrameParsed(frame.StartByte, frame.Length, frame.Payload.Length);
 
                         FrameReceived?.Invoke(this, frame);
@@ -437,7 +418,6 @@ public class UsbTransport : ITransport
                     {
                         // Buffer too large, clear it to prevent memory issues
                         var ex = new FrameParseException("Frame buffer overflow");
-                        _logger.LogFrameParsingFailed(ex, frameBuffer.Count);
                         MeshCoreSdkEventSource.Log.FrameParsingFailed(ex.Message, frameBuffer.Count);
 
                         frameBuffer.Clear();
@@ -447,18 +427,18 @@ public class UsbTransport : ITransport
             }
             catch (OperationCanceledException)
             {
-                _logger.LogDebug("Receive loop cancelled for {PortName}", portName);
+                MeshCoreSdkEventSource.Log.ReceiveLoopCancelled(portName);
                 break;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in receive loop for {PortName}", portName);
+                MeshCoreSdkEventSource.Log.ReceiveLoopError(portName, ex.Message);
                 ErrorOccurred?.Invoke(this, ex);
                 await Task.Delay(1000, _cancellationTokenSource.Token); // Wait before retry
             }
         }
 
-        _logger.LogDebug("Receive loop ended for {PortName}", portName);
+        MeshCoreSdkEventSource.Log.ReceiveLoopEnded(portName);
     }
 
     /// <summary>
@@ -489,7 +469,7 @@ public class UsbTransport : ITransport
             // No start byte found, clear buffer
             if (buffer.Count > 0)
             {
-                _logger.LogTrace("No start byte found in {BufferSize} bytes, clearing buffer", buffer.Count);
+                MeshCoreSdkEventSource.Log.NoStartByteFound(buffer.Count);
             }
             buffer.Clear();
             return false;
@@ -498,7 +478,7 @@ public class UsbTransport : ITransport
         if (startIndex > 0)
         {
             // Remove bytes before start byte
-            _logger.LogTrace("Removing {ByteCount} bytes before start byte", startIndex);
+            MeshCoreSdkEventSource.Log.RemovingBytesBeforeStartByte(startIndex);
             buffer.RemoveRange(0, startIndex);
         }
 
@@ -511,7 +491,6 @@ public class UsbTransport : ITransport
 
         if (buffer.Count < totalFrameSize)
         {
-            _logger.LogTrace("Waiting for more data: have {BufferSize} bytes, need {TotalFrameSize}", buffer.Count, totalFrameSize);
             return false; // Not enough data yet
         }
 
@@ -526,7 +505,6 @@ public class UsbTransport : ITransport
         }
         catch (Exception ex)
         {
-            _logger.LogFrameParsingFailed(ex, frameData.Length);
             MeshCoreSdkEventSource.Log.FrameParsingFailed(ex.Message, frameData.Length);
             return false;
         }
@@ -535,35 +513,32 @@ public class UsbTransport : ITransport
     /// <summary>
     /// Discovers available MeshCore devices on serial ports
     /// </summary>
-    public static async Task<List<MeshCoreDevice>> DiscoverDevicesAsync(ILoggerFactory? loggerFactory = null, CancellationToken cancellationToken = default)
+    public static async Task<List<MeshCoreDevice>> DiscoverDevicesAsync(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, CancellationToken cancellationToken = default)
     {
-        var logger = loggerFactory?.CreateLogger<UsbTransport>() ?? NullLogger<UsbTransport>.Instance;
         var devices = new List<MeshCoreDevice>();
         var portNames = SerialPort.GetPortNames();
 
-        logger.LogDeviceDiscoveryStarted("USB");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryStarted("USB");
-
-        logger.LogDebug("Found {PortCount} serial ports: {PortNames}", portNames.Length, string.Join(", ", portNames));
+        MeshCoreSdkEventSource.Log.FoundSerialPorts(portNames.Length, string.Join(", ", portNames));
 
         foreach (var portName in portNames)
         {
-            logger.LogDebug("Testing port {PortName}...", portName);
+            MeshCoreSdkEventSource.Log.TestingPort(portName);
 
             try
             {
-                using var transport = new UsbTransport(portName, loggerFactory: loggerFactory);
+                using var transport = new UsbTransport(portName);
 
                 // Try to connect with timeout
                 var connectTask = transport.ConnectAsync();
                 if (await Task.WhenAny(connectTask, Task.Delay(1000)) != connectTask)
                 {
-                    logger.LogDebug("Connection timeout for {PortName}", portName);
+                    MeshCoreSdkEventSource.Log.ConnectionTimeout(portName);
                     continue;
                 }
 
                 await connectTask; // This will throw if connection failed
-                logger.LogDebug("Connected to {PortName}", portName);
+                MeshCoreSdkEventSource.Log.ConnectedToPort(portName);
 
                 // According to research, try CMD_APP_START first for older firmware compatibility
                 var appStartResponse = await transport.SendCommandAsync(
@@ -580,7 +555,7 @@ public class UsbTransport : ITransport
                 // Check if we got a valid device info response (RESP_CODE_DEVICE_INFO = 0x0D)
                 if (deviceQueryResponse.Payload?.Length > 0 && deviceQueryResponse.Payload[0] == 0x0D)
                 {
-                    logger.LogInformation("{PortName} is a MeshCore device!", portName);
+                    MeshCoreSdkEventSource.Log.MeshCoreDeviceIdentified(portName);
                     devices.Add(new MeshCoreDevice
                     {
                         Id = portName,
@@ -592,29 +567,27 @@ public class UsbTransport : ITransport
                 }
                 else
                 {
-                    logger.LogDebug("{PortName} responded but not with device info (response code: {ResponseCode:X2})",
-                        portName, deviceQueryResponse.Payload?.FirstOrDefault() ?? 0);
+                    MeshCoreSdkEventSource.Log.PortRespondedWithoutDeviceInfo(portName, deviceQueryResponse.Payload?.FirstOrDefault() ?? 0);
                 }
             }
             catch (DeviceConnectionException ex)
             {
-                logger.LogDebug("Connection error for {PortName}: {Message}", portName, ex.Message);
+                MeshCoreSdkEventSource.Log.DiscoveryConnectionError(portName, ex.Message);
             }
             catch (MeshCoreTimeoutException)
             {
-                logger.LogDebug("Timeout for {PortName} - likely not a MeshCore device", portName);
+                MeshCoreSdkEventSource.Log.DiscoveryTimeout(portName);
             }
             catch (UnauthorizedAccessException ex)
             {
-                logger.LogDebug("Access denied for {PortName}: {Message}", portName, ex.Message);
+                MeshCoreSdkEventSource.Log.DiscoveryAccessDenied(portName, ex.Message);
             }
             catch (Exception ex)
             {
-                logger.LogDebug("Error testing {PortName}: {ExceptionType} - {Message}", portName, ex.GetType().Name, ex.Message);
+                MeshCoreSdkEventSource.Log.DiscoveryGeneralError(portName, ex.GetType().Name, ex.Message);
             }
         }
 
-        logger.LogDeviceDiscoveryCompleted(devices.Count, "USB");
         MeshCoreSdkEventSource.Log.DeviceDiscoveryCompleted(devices.Count, "USB");
 
         return devices;

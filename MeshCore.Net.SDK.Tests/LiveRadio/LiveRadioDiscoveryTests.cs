@@ -4,6 +4,7 @@
 
 namespace MeshCore.Net.SDK.Tests.LiveRadio
 {
+    using System.IO;
     using System.Threading.Tasks;
     using MeshCore.Net.SDK.Models;
     using Xunit;
@@ -39,18 +40,35 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
             await ExecuteIsolationTestAsync("Get Contacts", async (client) =>
             {
                 contacts = await client.GetContactsAsync(CancellationToken.None);
-            });
+            }, enableLogging: false);
 
             await ExecuteIsolationTestAsync("Discover Path", async (client) =>
             {
-                Contact contact = contacts
-                .Where(contact => contact.NodeType == NodeType.Repeater)
-                .OrderBy(_ => Guid.NewGuid()).First();
+                /*
+                {
+                  "public_key": "2fbe6a2f4386f7ab6da30cc2bc966ef73ef52f0a8f1e033503ddad5cc9ddaff8",
+                  "type": 2,
+                  "flags": 0,
+                  "out_path_len": -1,
+                  "out_path": "",
+                  "adv_name": "BLI_fugazi",
+                  "last_advert": 1770188851,
+                  "adv_lat": 48.766948,
+                  "adv_lon": -122.47557,
+                  "lastmod": 1770186592
+                }
+                */
+                var contact = contacts
+                    .Where(contact => contact.NodeType == NodeType.Repeater)
+                    .Where(contact => contact.Name == "BLI_fugazi").First();
 
-                // Act - no exception means success
-                var path = await client.TryDiscoverPathAsync(contact);
+                using (var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+                {
+                    // Act - no exception means success
+                    var path = await client.TryDiscoverPathAsync(contact, cancellationTokenSource.Token);
 
-                _output.WriteLine($"✅ Path {path} for {contact} successfully fetched from device.");
+                    _output.WriteLine($"✅ Path {path} for {contact} successfully fetched from device.");
+                }
             });
         }
 
@@ -63,6 +81,8 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
             {
                 contacts = await client.GetContactsAsync(CancellationToken.None);
             });
+
+
 
             await ExecuteIsolationTestAsync("Get Neighbors", async (client) =>
             {
@@ -134,5 +154,57 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
             });
         }
 
+        [Fact]
+        public async Task Test_04_TryRequestStatusAsync_ShouldSucceed()
+        {
+            IEnumerable<Contact> contacts = Enumerable.Empty<Contact>();
+
+            await ExecuteIsolationTestAsync("Single Hop Advert", async (client) =>
+            {
+                await client.SendSelfAdvertZeroHopAsync();
+            }, enableLogging: false);
+
+            await Task.Delay(TimeSpan.FromSeconds(20));
+
+            await ExecuteIsolationTestAsync("Get Contacts", async (client) =>
+            {
+                contacts = await client.GetContactsAsync(CancellationToken.None);
+            }, enableLogging: false);
+
+            await ExecuteIsolationTestAsync("Request Status", async (client) =>
+            {
+                /*
+                {
+                  "public_key": "2fbe6a2f4386f7ab6da30cc2bc966ef73ef52f0a8f1e033503ddad5cc9ddaff8",
+                  "type": 2,
+                  "flags": 0,
+                  "out_path_len": -1,
+                  "out_path": "",
+                  "adv_name": "BLI_fugazi",
+                  "last_advert": 1770188851,
+                  "adv_lat": 48.766948,
+                  "adv_lon": -122.47557,
+                  "lastmod": 1770186592
+                }
+                */
+                var contact = contacts
+                    .Where(contact => contact.NodeType == NodeType.Repeater)
+                    .Where(contact => contact.Name == "BLI_fugazi").First();
+
+                using (var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+                {
+                    // Act - Non-null means success, empty list is still a valid response
+                    StatusInfo? statusInfo = await client.TryRequestStatusAsync(contact, cancellationTokenSource.Token);
+                    if (statusInfo != null)
+                    {
+                        _output.WriteLine($"✅ Status Info for {contact} successfully fetched from device. {statusInfo}");
+                    }
+                    else
+                    {
+                        _output.WriteLine($"⚠️ No status info found for {contact}.");
+                    }
+                }
+            });
+        }
     }
 }

@@ -2,13 +2,10 @@
 // Copyright (c) Wayne Walter Berry. All rights reserved.
 // </copyright>
 
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using MeshCore.Net.SDK.Models;
 using MeshCore.Net.SDK.Tests.Logging;
 using MeshCore.Net.SDK.Transport;
-using System.Diagnostics;
-using System.Diagnostics.Tracing;
+using Microsoft.Extensions.Logging;
 using Xunit.Abstractions;
 
 namespace MeshCore.Net.SDK.Tests.LiveRadio;
@@ -178,11 +175,13 @@ public abstract class LiveRadioTestBase : IDisposable
 
     #region Common Test Patterns
 
-    protected async Task ExecuteStandardTestAsync(string testName, Func<Task> testAction, bool requiresConnection = true)
+    protected async Task ExecuteStandardTestAsync(string testName, Func<Task> testAction, bool enableLogging = true)
     {
         _output.WriteLine("");
         _output.WriteLine($"{testName}");
         _output.WriteLine(new string('=', testName.Length + 6));
+
+        _etwListener.IsEnabled = enableLogging; 
 
         await _clientSemaphore.WaitAsync();
 
@@ -192,21 +191,22 @@ public abstract class LiveRadioTestBase : IDisposable
         }
         finally
         {
+            _etwListener.IsEnabled = enableLogging;
             _clientSemaphore.Release();
         }
     }
 
-    protected async Task ExecuteIsolationTestAsync(string testName, Func<MeshCoreClient, Task> testAction)
+    protected async Task ExecuteIsolationTestAsync(string testName, Func<MeshCoreClient, Task> testAction, bool enableLogging = true)
     {
         await ExecuteStandardTestAsync(testName, async () =>
         {
-            var transport = new UsbTransport("COM3", loggerFactory: _loggerFactory);
+            var transport = new UsbTransport("COM3");
 
             using (MeshCoreClient client = await MeshCoreClient.ConnectAsync(transport, _loggerFactory))
             {
                 await testAction(client);
             }
-        });
+        }, enableLogging: enableLogging);
     }
 
     #endregion

@@ -84,6 +84,259 @@ public sealed class MeshCoreSdkEventSource : EventSource
         WriteEvent(105, deviceId ?? "Unknown");
     }
 
+    /// <summary>
+    /// Logs when USB transport is created
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    /// <param name="baudRate">The baud rate for communication</param>
+    [Event(106, Level = EventLevel.Verbose, Message = "USB Transport created for port {0} at {1} baud")]
+    public void UsbTransportCreated(string portName, int baudRate)
+    {
+        WriteEvent(106, portName ?? "Unknown", baudRate);
+    }
+
+    /// <summary>
+    /// Logs when serial port is opened successfully
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(107, Level = EventLevel.Verbose, Message = "Serial port {0} opened successfully")]
+    public void SerialPortOpened(string portName)
+    {
+        WriteEvent(107, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when disconnection starts
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(108, Level = EventLevel.Verbose, Message = "Disconnecting from {0}")]
+    public void DisconnectingFrom(string portName)
+    {
+        WriteEvent(108, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs error during disconnect
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(109, Level = EventLevel.Error, Message = "Error during disconnect from {0}: {1}")]
+    public void DisconnectError(string portName, string errorMessage)
+    {
+        WriteEvent(109, portName ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs when frame is sent successfully
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(110, Level = EventLevel.Verbose, Message = "Frame sent successfully to {0}")]
+    public void FrameSentSuccessfully(string portName)
+    {
+        WriteEvent(110, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when frame send fails
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(111, Level = EventLevel.Error, Message = "Failed to send frame to {0}: {1}")]
+    public void FrameSendFailed(string portName, string errorMessage)
+    {
+        WriteEvent(111, portName ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs when receive loop starts
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(112, Level = EventLevel.Verbose, Message = "Starting receive loop for {0}")]
+    public void ReceiveLoopStarted(string portName)
+    {
+        WriteEvent(112, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when receive loop is cancelled
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(113, Level = EventLevel.Verbose, Message = "Receive loop cancelled for {0}")]
+    public void ReceiveLoopCancelled(string portName)
+    {
+        WriteEvent(113, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when receive loop ends
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    [Event(114, Level = EventLevel.Verbose, Message = "Receive loop ended for {0}")]
+    public void ReceiveLoopEnded(string portName)
+    {
+        WriteEvent(114, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs error in receive loop
+    /// </summary>
+    /// <param name="portName">The serial port name</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(115, Level = EventLevel.Error, Message = "Error in receive loop for {0}: {1}")]
+    public void ReceiveLoopError(string portName, string errorMessage)
+    {
+        WriteEvent(115, portName ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs when no start byte found in buffer
+    /// </summary>
+    /// <param name="bufferSize">Size of the buffer being cleared</param>
+    [Event(116, Level = EventLevel.Verbose, Message = "No start byte found in {0} bytes, clearing buffer")]
+    public void NoStartByteFound(int bufferSize)
+    {
+        WriteEvent(116, bufferSize);
+    }
+
+    /// <summary>
+    /// Logs when bytes are removed before start byte
+    /// </summary>
+    /// <param name="byteCount">Number of bytes removed</param>
+    [Event(117, Level = EventLevel.Verbose, Message = "Removing {0} bytes before start byte")]
+    public void RemovingBytesBeforeStartByte(int byteCount)
+    {
+        WriteEvent(117, byteCount);
+    }
+
+    /// <summary>
+    /// Logs when waiting for more data
+    /// </summary>
+    /// <param name="bufferSize">Current buffer size</param>
+    /// <param name="totalFrameSize">Required frame size</param>
+    [Event(118, Level = EventLevel.Verbose, Message = "Waiting for more data: have {0} bytes, need {1}")]
+    public void WaitingForMoreData(int bufferSize, int totalFrameSize)
+    {
+        WriteEvent(118, bufferSize, totalFrameSize);
+    }
+
+    /// <summary>
+    /// Logs unexpected response code
+    /// </summary>
+    /// <param name="responseCode">The unexpected response code</param>
+    /// <param name="expectedCommand">The expected command</param>
+    /// <param name="deviceId">The device identifier</param>
+    [Event(119, Level = EventLevel.Warning, Message = "Unexpected response code {0} for command {1} on device {2}")]
+    public void UnexpectedResponseCode(byte responseCode, byte expectedCommand, string deviceId)
+    {
+        WriteEvent(119, responseCode, expectedCommand, deviceId ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when testing port during discovery
+    /// </summary>
+    /// <param name="portName">The port name being tested</param>
+    [Event(120, Level = EventLevel.Verbose, Message = "Testing port {0}...")]
+    public void TestingPort(string portName)
+    {
+        WriteEvent(120, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs connection timeout during discovery
+    /// </summary>
+    /// <param name="portName">The port name that timed out</param>
+    [Event(121, Level = EventLevel.Verbose, Message = "Connection timeout for {0}")]
+    public void ConnectionTimeout(string portName)
+    {
+        WriteEvent(121, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when port responds but not with device info
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    /// <param name="responseCode">The response code received</param>
+    [Event(122, Level = EventLevel.Verbose, Message = "{0} responded but not with device info (response code: {1})")]
+    public void PortRespondedWithoutDeviceInfo(string portName, byte responseCode)
+    {
+        WriteEvent(122, portName ?? "Unknown", responseCode);
+    }
+
+    /// <summary>
+    /// Logs connection error during discovery
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(123, Level = EventLevel.Verbose, Message = "Connection error for {0}: {1}")]
+    public void DiscoveryConnectionError(string portName, string errorMessage)
+    {
+        WriteEvent(123, portName ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs timeout during discovery
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    [Event(124, Level = EventLevel.Verbose, Message = "Timeout for {0} - likely not a MeshCore device")]
+    public void DiscoveryTimeout(string portName)
+    {
+        WriteEvent(124, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs access denied during discovery
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(125, Level = EventLevel.Verbose, Message = "Access denied for {0}: {1}")]
+    public void DiscoveryAccessDenied(string portName, string errorMessage)
+    {
+        WriteEvent(125, portName ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs general error during discovery
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    /// <param name="exceptionType">The exception type</param>
+    /// <param name="errorMessage">The error message</param>
+    [Event(126, Level = EventLevel.Verbose, Message = "Error testing {0}: {1} - {2}")]
+    public void DiscoveryGeneralError(string portName, string exceptionType, string errorMessage)
+    {
+        WriteEvent(126, portName ?? "Unknown", exceptionType ?? "Unknown", errorMessage ?? "Unknown error");
+    }
+
+    /// <summary>
+    /// Logs found serial ports count
+    /// </summary>
+    /// <param name="portCount">Number of ports found</param>
+    /// <param name="portNames">Comma-separated list of port names</param>
+    [Event(127, Level = EventLevel.Verbose, Message = "Found {0} serial ports: {1}")]
+    public void FoundSerialPorts(int portCount, string portNames)
+    {
+        WriteEvent(127, portCount, portNames ?? string.Empty);
+    }
+
+    /// <summary>
+    /// Logs when connected to port during discovery
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    [Event(128, Level = EventLevel.Verbose, Message = "Connected to {0}")]
+    public void ConnectedToPort(string portName)
+    {
+        WriteEvent(128, portName ?? "Unknown");
+    }
+
+    /// <summary>
+    /// Logs when port is identified as MeshCore device
+    /// </summary>
+    /// <param name="portName">The port name</param>
+    [Event(129, Level = EventLevel.Informational, Message = "{0} is a MeshCore device!")]
+    public void MeshCoreDeviceIdentified(string portName)
+    {
+        WriteEvent(129, portName ?? "Unknown");
+    }
+
     #endregion
 
     #region Protocol Events (200-299)
