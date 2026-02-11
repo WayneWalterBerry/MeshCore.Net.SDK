@@ -235,13 +235,7 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
-
-            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, new byte[] { 0x08 }, cancellationToken);
-
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
+            MeshCoreFrame response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, new byte[] { 0x08 }, cancellationToken);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_DEVICE_INFO)
             {
@@ -280,13 +274,7 @@ public class MeshCoreClient : IDisposable
         var timestamp = (uint)((DateTimeOffset)dateTime).ToUnixTimeSeconds();
         var data = BitConverter.GetBytes(timestamp);
 
-        _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_DEVICE_TIME, deviceId);
-        MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_DEVICE_TIME, deviceId);
-
         var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_DEVICE_TIME, data);
-
-        _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_SET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
-        MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_SET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
 
         if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
         {
@@ -308,13 +296,7 @@ public class MeshCoreClient : IDisposable
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
-        _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, deviceId);
-        MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, deviceId);
-
         var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_DEVICE_TIME, cancellationToken: cancellationToken);
-
-        _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
-        MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_DEVICE_TIME, response.Payload.FirstOrDefault(), deviceId);
 
         if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_CURR_TIME)
         {
@@ -352,9 +334,6 @@ public class MeshCoreClient : IDisposable
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
         var rebootData = Encoding.ASCII.GetBytes("reboot");
-
-        _logger.LogCommandSending((byte)MeshCoreCommand.CMD_REBOOT, deviceId);
-        MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_REBOOT, deviceId);
 
         var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_REBOOT, rebootData);
 
@@ -628,24 +607,10 @@ public class MeshCoreClient : IDisposable
             // Wire format for CMD_GET_CONTACT_BY_KEY:
             //   [CMD_GET_CONTACT_BY_KEY][pub_key(32)]
             // The transport layer adds the command byte; we send only the 32‑byte key.
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_CONTACT_BY_KEY, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_CONTACT_BY_KEY, deviceId);
-
             var response = await _transport.SendCommandAsync(
                 MeshCoreCommand.CMD_GET_CONTACT_BY_KEY,
                 publicKey.Value,
                 cancellationToken);
-
-            var firstPayloadByte = response.Payload.FirstOrDefault();
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_GET_CONTACT_BY_KEY,
-                firstPayloadByte,
-                deviceId);
-
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_GET_CONTACT_BY_KEY,
-                firstPayloadByte,
-                deviceId);
 
             var responseCode = response.GetResponseCode();
 
@@ -1147,13 +1112,7 @@ public class MeshCoreClient : IDisposable
         {
             var data = SerializeChannel(channelConfig);
 
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_CHANNEL, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_CHANNEL, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_CHANNEL, data);
-
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_SET_CHANNEL, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_SET_CHANNEL, response.Payload.FirstOrDefault(), deviceId);
 
             if (response.GetResponseCode() == MeshCoreResponseCode.RESP_CODE_OK)
             {
@@ -1299,16 +1258,11 @@ public class MeshCoreClient : IDisposable
             _logger.LogDebug("Sending CMD_SEND_CHANNEL_TXT_MSG with payload: TXT_TYPE=0x00, CHANNEL_IDX=0x{ChannelIndex:X2}, TIMESTAMP={Timestamp}, MESSAGE_LEN={MessageLen}",
                 channelConfig.Index, timestamp, messageBytes.Length);
 
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, payloadArray);
 
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, response.Payload.FirstOrDefault(), deviceId);
+            var responseCode = response.GetResponseCode();
 
             // According to research: CMD_SEND_CHANNEL_TXT_MSG should return RESP_CODE_SENT (0x06), not RESP_CODE_OK
-            var responseCode = response.GetResponseCode();
             if (responseCode == MeshCoreResponseCode.RESP_CODE_SENT)
             {
                 _logger.LogInformation("Channel message sent successfully to {ChannelName} (index {ChannelIndex}) from device {DeviceId}",
@@ -1546,6 +1500,229 @@ public class MeshCoreClient : IDisposable
     #region Configuration Operations
 
     /// <summary>
+    /// Retrieves the current radio statistics from the connected device asynchronously
+    /// by issuing CMD_GET_STATS with STATS_TYPE_RADIO (0x01).
+    /// </summary>
+    /// <remarks>
+    /// This corresponds to the Python CLI command <c>get stats_radio</c> which calls
+    /// <c>mc.commands.get_stats_radio()</c>. The device returns a 14-byte binary payload
+    /// containing noise floor, RSSI, SNR, and cumulative air-time counters.
+    /// </remarks>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>
+    /// A <see cref="RadioStats"/> object containing the radio statistics reported by the device.
+    /// </returns>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error or an unexpected response to the radio stats query.
+    /// </exception>
+    public async Task<RadioStats> GetRadioStatsAsync(CancellationToken cancellationToken = default)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        var operationName = nameof(GetRadioStatsAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            // CMD_GET_STATS (0x38) with STATS_TYPE_RADIO (0x01)
+            byte[] requestPayload = new byte[] { 0x01 };
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_STATS, requestPayload, cancellationToken);
+
+            var responseCode = response.GetResponseCode();
+
+            switch (responseCode)
+            {
+                case MeshCoreResponseCode.RESP_CODE_STATS:
+
+                    try
+                    {
+                        var radioStats = RadioStatsSerialization.Instance.Deserialize(response.Payload);
+
+                        var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                        _logger.LogDebug(
+                            "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. {RadioStats}",
+                            operationName, deviceId, (long)duration, radioStats);
+                        MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+                        return radioStats;
+                    }
+                    catch (Exception parseEx)
+                    {
+                        var errorMessage = $"Failed to parse radio stats from device response. " +
+                            $"Response length: {response.Payload.Length} bytes. " +
+                            $"Sent payload: {Convert.ToHexString(requestPayload)}. " +
+                            $"Received payload: {Convert.ToHexString(response.Payload)}. " +
+                            $"Parse error: {parseEx.Message}";
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_STATS, 0x01, errorMessage);
+
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_STATS, 0x01);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_STATS, 0x01, ex.Message);
+
+                        throw ex;
+                    }
+                case MeshCoreResponseCode.RESP_CODE_ERR:
+                    {
+                        var status = response.GetStatus();
+                        var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                        var errorMessage = status switch
+                        {
+                            MeshCoreStatus.InvalidCommand => "Radio stats command not supported by this device firmware",
+                            MeshCoreStatus.DeviceError => "Device is in an error state and cannot provide radio stats",
+                            MeshCoreStatus.NetworkError => "Network error occurred while retrieving radio stats",
+                            MeshCoreStatus.TimeoutError => "Timeout occurred while retrieving radio stats",
+                            MeshCoreStatus.InvalidParameter => "Invalid parameters for radio stats command",
+                            MeshCoreStatus.UnknownError => "Unknown error occurred while retrieving radio stats",
+                            _ => $"Failed to get radio stats (status: 0x{statusByte:X2})"
+                        };
+
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_STATS, statusByte, errorMessage);
+
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_STATS, statusByte);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_STATS, statusByte, ex.Message);
+
+                        throw ex;
+                    }
+                default:
+                    {
+                        var errorMessage = $"Unexpected response code {responseCode} for radio stats request. " +
+                            $"Expected RESP_CODE_STATS (0x{(byte)MeshCoreResponseCode.RESP_CODE_STATS:X2}).";
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_STATS, 0x01, errorMessage);
+
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_STATS, 0x01);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_STATS, 0x01, ex.Message);
+
+                        throw ex;
+                    }
+            }
+        }
+        catch (Exception ex) when (ex is not ProtocolException)
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sets the LoRa radio parameters on the connected MeshCore device.
+    /// A device reboot is required for the new parameters to take effect.
+    /// </summary>
+    /// <remarks>
+    /// This corresponds to the Python CLI command <c>set radio f,bw,sf,cr</c> which calls
+    /// <c>mc.commands.set_radio(freq, bw, sf, cr)</c>.
+    /// The wire format for CMD_SET_RADIO_PARAMS (0x0B) is:
+    /// <code>
+    /// [freq_khz: uint32 LE][bw_khz: uint32 LE][sf: uint8][cr: uint8]
+    /// </code>
+    /// where freq and bw are multiplied by 1000 from their MHz / kHz values.
+    /// </remarks>
+    /// <param name="radioParams">The radio parameters to set on the device.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>A task that represents the asynchronous operation.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="radioParams"/> is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when radio parameter values are out of valid range.</exception>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error or unexpected response.</exception>
+    public async Task SetRadioParamsAsync(RadioParams radioParams, CancellationToken cancellationToken = default)
+    {
+        if (radioParams == null)
+        {
+            throw new ArgumentNullException(nameof(radioParams));
+        }
+
+        if (radioParams.FrequencyMHz <= 0)
+        {
+            throw new ArgumentException("Frequency must be greater than 0", nameof(radioParams));
+        }
+
+        if (radioParams.BandwidthKHz <= 0)
+        {
+            throw new ArgumentException("Bandwidth must be greater than 0", nameof(radioParams));
+        }
+
+        if (radioParams.SpreadingFactor < 6 || radioParams.SpreadingFactor > 12)
+        {
+            throw new ArgumentException("Spreading factor must be between 6 and 12", nameof(radioParams));
+        }
+
+        if (radioParams.CodingRate < 5 || radioParams.CodingRate > 8)
+        {
+            throw new ArgumentException("Coding rate must be between 5 and 8", nameof(radioParams));
+        }
+
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        var operationName = nameof(SetRadioParamsAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug(
+            "Starting operation: {OperationName} for device: {DeviceId}, params: {RadioParams}",
+            operationName, deviceId, radioParams);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            var payload = RadioParamsSerialization.Instance.Serialize(radioParams);
+
+            _logger.LogDebug(
+                "Sending CMD_SET_RADIO_PARAMS: {RadioParams}, payload={Payload}",
+                radioParams, Convert.ToHexString(payload));
+
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_RADIO_PARAMS, payload, cancellationToken);
+
+            var responseCode = response.GetResponseCode();
+
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
+            {
+                var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                _logger.LogDebug(
+                    "Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. {RadioParams}. Reboot required to apply.",
+                    operationName, deviceId, (long)duration, radioParams);
+                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+                return;
+            }
+
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
+            {
+                var status = response.GetStatus();
+                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                var errorMessage = status switch
+                {
+                    MeshCoreStatus.InvalidCommand => "Set radio params command not supported by this device firmware",
+                    MeshCoreStatus.InvalidParameter => "Invalid radio parameters supplied to device",
+                    MeshCoreStatus.DeviceError => "Device is in an error state and cannot update radio parameters",
+                    _ => $"Failed to set radio parameters (status: 0x{statusByte:X2})"
+                };
+
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS, statusByte, errorMessage);
+
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS, statusByte, ex.Message);
+
+                throw ex;
+            }
+
+            var unexpected = new ProtocolException(
+                (byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS,
+                0x01,
+                $"Unexpected response code {responseCode} for set radio params request.");
+
+            _logger.LogProtocolError(unexpected, (byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS, 0x01);
+            MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS, 0x01, unexpected.Message);
+
+            throw unexpected;
+        }
+        catch (Exception ex) when (ex is not ProtocolException)
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Gets battery and storage information from the MeshCore device
     /// </summary>
     /// <returns>Battery and storage information including voltage, used storage, and total storage</returns>
@@ -1561,72 +1738,69 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_BATT_AND_STORAGE);
 
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, response.Payload.FirstOrDefault(), deviceId);
-
             var responseCode = response.GetResponseCode();
-            if (responseCode == MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE)
+
+            switch (responseCode)
             {
-                try
-                {
-                    var batteryAndStorage = BatteryAndStorageSerialization.Instance.Deserialize(response.Payload);
+                case MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE:
 
-                    var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                    _logger.LogDebug("Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. Battery: {BatteryVoltage}mV, Storage: {UsedStorage}/{TotalStorage}KB",
-                        operationName, deviceId, (long)duration, batteryAndStorage.BatteryVoltage, batteryAndStorage.UsedStorage, batteryAndStorage.TotalStorage);
-                    MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+                    try
+                    {
+                        var batteryAndStorage = BatteryAndStorageSerialization.Instance.Deserialize(response.Payload);
 
-                    return batteryAndStorage;
-                }
-                catch (Exception parseEx)
-                {
-                    var errorMessage = $"Failed to parse battery and storage data from device response. Response length: {response.Payload.Length} bytes. Parse error: {parseEx.Message}";
-                    var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
+                        var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                        _logger.LogDebug("Operation completed: {OperationName} for device: {DeviceId} in {Duration}ms. Battery: {BatteryVoltage}mV, Storage: {UsedStorage}/{TotalStorage}KB",
+                            operationName, deviceId, (long)duration, batteryAndStorage.BatteryVoltage, batteryAndStorage.UsedStorage, batteryAndStorage.TotalStorage);
+                        MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
 
-                    _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
-                    MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
+                        return batteryAndStorage;
+                    }
+                    catch (Exception parseEx)
+                    {
+                        var errorMessage = $"Failed to parse battery and storage data from device response. Response length: {response.Payload.Length} bytes. Parse error: {parseEx.Message}";
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
 
-                    throw ex;
-                }
-            }
-            else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
-            {
-                var status = response.GetStatus();
-                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
 
-                var errorMessage = status switch
-                {
-                    MeshCoreStatus.InvalidCommand => "Battery and storage command not supported by this device firmware",
-                    MeshCoreStatus.DeviceError => "Device is in an error state and cannot provide battery/storage information",
-                    MeshCoreStatus.NetworkError => "Network error occurred while retrieving battery/storage information",
-                    MeshCoreStatus.TimeoutError => "Timeout occurred while retrieving battery/storage information",
-                    MeshCoreStatus.InvalidParameter => "Invalid parameters for battery/storage command",
-                    MeshCoreStatus.UnknownError => "Unknown error occurred while retrieving battery/storage information",
-                    _ => $"Failed to get battery and storage information (status: 0x{statusByte:X2})"
-                };
+                        throw ex;
+                    }
+                case MeshCoreResponseCode.RESP_CODE_ERR:
+                    {
+                        var status = response.GetStatus();
+                        var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
 
-                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, errorMessage);
+                        var errorMessage = status switch
+                        {
+                            MeshCoreStatus.InvalidCommand => "Battery and storage command not supported by this device firmware",
+                            MeshCoreStatus.DeviceError => "Device is in an error state and cannot provide battery/storage information",
+                            MeshCoreStatus.NetworkError => "Network error occurred while retrieving battery/storage information",
+                            MeshCoreStatus.TimeoutError => "Timeout occurred while retrieving battery/storage information",
+                            MeshCoreStatus.InvalidParameter => "Invalid parameters for battery/storage command",
+                            MeshCoreStatus.UnknownError => "Unknown error occurred while retrieving battery/storage information",
+                            _ => $"Failed to get battery and storage information (status: 0x{statusByte:X2})"
+                        };
 
-                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte);
-                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, ex.Message);
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, errorMessage);
 
-                throw ex;
-            }
-            else
-            {
-                // Unexpected response code
-                var errorMessage = $"Unexpected response code {responseCode} for battery and storage request. Expected RESP_CODE_BATT_AND_STORAGE ({(byte)MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE:X2}).";
-                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, statusByte, ex.Message);
 
-                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
-                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
+                        throw ex;
+                    }
+                default:
+                    {
+                        // Unexpected response code
+                        var errorMessage = $"Unexpected response code {responseCode} for battery and storage request. Expected RESP_CODE_BATT_AND_STORAGE ({(byte)MeshCoreResponseCode.RESP_CODE_BATT_AND_STORAGE:X2}).";
+                        var ex = new ProtocolException((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, errorMessage);
 
-                throw ex;
+                        _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01);
+                        MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_GET_BATT_AND_STORAGE, 0x01, ex.Message);
+
+                        throw ex;
+                    }
             }
         }
         catch (Exception ex) when (!(ex is ProtocolException))
@@ -1634,23 +1808,6 @@ public class MeshCoreClient : IDisposable
             _logger.LogUnexpectedError(ex, operationName);
             MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
             throw;
-        }
-    }
-
-    /// <summary>
-    /// Sets device configuration
-    /// </summary>
-    public async Task SetConfigurationAsync(DeviceConfiguration config)
-    {
-        var data = SerializeConfiguration(config);
-        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_RADIO_PARAMS, data);
-
-        if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
-        {
-            var status = response.GetStatus();
-            var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
-            throw new ProtocolException((byte)MeshCoreCommand.CMD_SET_RADIO_PARAMS,
-                statusByte, "Failed to set configuration");
         }
     }
 
@@ -1686,16 +1843,7 @@ public class MeshCoreClient : IDisposable
             // Serialize the advertisement configuration using the dedicated serializer
             var payload = AdvertisementSerialization.Instance.Serialize(advertisement);
 
-            _logger.LogDebug("Sending CMD_SEND_SELF_ADVERT with mode: {Mode} for device {DeviceId}",
-                advertisement.UseFloodMode ? "flood" : "zero-hop", deviceId);
-
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SEND_SELF_ADVERT, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SEND_SELF_ADVERT, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_SELF_ADVERT, payload);
-
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_SEND_SELF_ADVERT, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_SEND_SELF_ADVERT, response.Payload.FirstOrDefault(), deviceId);
 
             var responseCode = response.GetResponseCode();
             if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
@@ -1813,15 +1961,9 @@ public class MeshCoreClient : IDisposable
             "Requesting advert path for contact pubkey {PublicKey} on device {DeviceId}",
             publicKey,
             deviceId);
-        MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, deviceId);
-
         var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_ADVERT_PATH, payload);
 
-        var firstPayloadByte = response.Payload.FirstOrDefault();
-        _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, firstPayloadByte, deviceId);
-        MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_GET_ADVERT_PATH, firstPayloadByte, deviceId);
-
-        var responseCode = response.GetResponseCode();
+        MeshCoreResponseCode responseCode = response.GetResponseCode();
 
         switch (responseCode)
         {
@@ -1947,25 +2089,13 @@ public class MeshCoreClient : IDisposable
                     nameof(deviceName));
             }
 
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_ADVERT_NAME, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_ADVERT_NAME, deviceId);
-
             var response = await _transport.SendCommandAsync(
                 MeshCoreCommand.CMD_SET_ADVERT_NAME,
                 nameBytes,
                 cancellationToken);
 
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_ADVERT_NAME,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_ADVERT_NAME,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-
             var responseCode = response.GetResponseCode();
+
             if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
             {
                 var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
@@ -2311,19 +2441,7 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_AUTOADD_CONFIG, cancellationToken: CancellationToken.None);
-
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_GET_AUTOADD_CONFIG,
-                response.Payload.FirstOrDefault(),
-                deviceId);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_AUTOADD_CONFIG)
             {
@@ -2408,22 +2526,10 @@ public class MeshCoreClient : IDisposable
             var rawMask = (byte)flags;
             var payload = new[] { rawMask };
 
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG, deviceId);
-
             var response = await _transport.SendCommandAsync(
                 MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
                 payload,
                 cancellationToken);
-
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_AUTOADD_CONFIG,
-                response.Payload.FirstOrDefault(),
-                deviceId);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
             {
@@ -2483,13 +2589,7 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_DEVICE_QUERY, deviceId);
-
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_DEVICE_QUERY, new byte[] { 0x08 });
-
-            _logger.LogResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)MeshCoreCommand.CMD_DEVICE_QUERY, response.Payload.FirstOrDefault(), deviceId);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_DEVICE_INFO)
             {
@@ -2559,22 +2659,10 @@ public class MeshCoreClient : IDisposable
             byte manualAddContacts = enableAutoAdd ? (byte)0x00 : (byte)0x01;
             var payload = new[] { manualAddContacts };
 
-            _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS, deviceId);
-            MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS, deviceId);
-
             var response = await _transport.SendCommandAsync(
                 MeshCoreCommand.CMD_SET_OTHER_PARAMS,
                 payload,
                 cancellationToken);
-
-            _logger.LogResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
-                response.Payload.FirstOrDefault(),
-                deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived(
-                (byte)MeshCoreCommand.CMD_SET_OTHER_PARAMS,
-                response.Payload.FirstOrDefault(),
-                deviceId);
 
             if (response.GetResponseCode() != MeshCoreResponseCode.RESP_CODE_OK)
             {
@@ -2813,18 +2901,10 @@ public class MeshCoreClient : IDisposable
             // Use WaitForEventAsync pattern to send command and wait for RESP_CODE_CONTACT_MSG_RECV
             var frame = await WaitForEventAsync(async (ct) =>
             {
-                _logger.LogCommandSending((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, deviceId);
-                MeshCoreSdkEventSource.Log.CommandSending((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, deviceId);
-
                 var response = await _transport.SendCommandAsync(
                     MeshCoreCommand.CMD_SEND_TXT_MSG,
                     payloadArray,
                     ct);
-
-                MeshCoreSdkEventSource.Log.ResponseReceived(
-                    (byte)MeshCoreCommand.CMD_SEND_TXT_MSG,
-                    response.Payload.FirstOrDefault(),
-                    deviceId);
 
                 var responseCode = response.GetResponseCode();
 
@@ -2984,11 +3064,9 @@ public class MeshCoreClient : IDisposable
                 payload,
                 cancellationToken);
 
-            _logger.LogResponseReceived((byte)command, response.Payload.FirstOrDefault(), deviceId);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)command, response.Payload.FirstOrDefault(), deviceId);
+            var responseCode = response.GetResponseCode();
 
             // Check for immediate errors in the command response
-            var responseCode = response.GetResponseCode();
             if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
             {
                 var status = response.GetStatus();
@@ -3058,17 +3136,10 @@ public class MeshCoreClient : IDisposable
 
             var frame = await WaitForEventAsync(async (cancellationToken) =>
             {
-                // Send CMD_SEND_TRACE_PATH 
-                _logger.LogCommandSending((byte)meshCoreCommand, deviceId);
-                MeshCoreSdkEventSource.Log.CommandSending((byte)meshCoreCommand, deviceId);
-
                 var response = await _transport.SendCommandAsync(
                     meshCoreCommand,
                     payload,
                     cancellationToken);
-
-                _logger.LogResponseReceived((byte)meshCoreCommand, response.Payload.FirstOrDefault(), deviceId);
-                MeshCoreSdkEventSource.Log.ResponseReceived((byte)meshCoreCommand, response.Payload.FirstOrDefault(), deviceId);
 
                 var responseCode = response.GetResponseCode();
                 if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
@@ -3267,12 +3338,6 @@ public class MeshCoreClient : IDisposable
     private static bool TryDeserializeContact(byte[] data, out Contact? contact)
     {
         return ContactSerialization.Instance.TryDeserialize(data, out contact);
-    }
-
-    private static byte[] SerializeConfiguration(DeviceConfiguration config)
-    {
-        var configString = $"{config.DeviceName}\0{config.TransmitPower}\0{config.Channel}\0{(config.AutoRelay ? "1" : "0")}";
-        return Encoding.UTF8.GetBytes(configString);
     }
 
     /// <summary>

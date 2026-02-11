@@ -1,4 +1,5 @@
 using System.Diagnostics.Tracing;
+using MeshCore.Net.SDK.Protocol;
 
 namespace MeshCore.Net.SDK.Logging;
 
@@ -189,16 +190,6 @@ public sealed class MeshCoreSdkEventSource : EventSource
     }
 
     /// <summary>
-    /// Logs when no start byte found in buffer
-    /// </summary>
-    /// <param name="bufferSize">Size of the buffer being cleared</param>
-    [Event(116, Level = EventLevel.Verbose, Message = "No start byte found in {0} bytes, clearing buffer")]
-    public void NoStartByteFound(int bufferSize)
-    {
-        WriteEvent(116, bufferSize);
-    }
-
-    /// <summary>
     /// Logs when bytes are removed before start byte
     /// </summary>
     /// <param name="byteCount">Number of bytes removed</param>
@@ -346,8 +337,8 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// </summary>
     /// <param name="command">The command byte being sent</param>
     /// <param name="deviceId">The identifier of the target device</param>
-    [Event(200, Level = EventLevel.Verbose, Message = "Sending command: {0} to device: {1}")]
-    public void CommandSending(byte command, string deviceId)
+    [Event(200, Level = EventLevel.Verbose, Message = "Sending command: {0}(0x{0:X2}) to device: {1}")]
+    public void CommandSending(MeshCoreCommand command, string deviceId)
     {
         WriteEvent(200, command, deviceId ?? "Unknown");
     }
@@ -367,12 +358,12 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// Logs when a response is received from a device
     /// </summary>
     /// <param name="command">The command byte that the response is for</param>
-    /// <param name="status">The status byte in the response</param>
+    /// <param name="responseCode">The response code.</param>
     /// <param name="deviceId">The identifier of the device that sent the response</param>
-    [Event(202, Level = EventLevel.Verbose, Message = "Received response for command: {0} with status: {1} from device: {2}")]
-    public void ResponseReceived(byte command, byte status, string deviceId)
+    [Event(202, Level = EventLevel.Verbose, Message = "Received response for command: {0}(0x{0:X2}) with response code: {1}(0x{1:X2}) from device: {2}")]
+    public void ResponseReceived(MeshCoreCommand command, MeshCoreResponseCode responseCode, string deviceId)
     {
-        WriteEvent(202, command, status, deviceId ?? "Unknown");
+        WriteEvent(202, command, responseCode, deviceId ?? "Unknown");
     }
 
     /// <summary>

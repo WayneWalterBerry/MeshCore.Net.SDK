@@ -157,7 +157,7 @@ public class UsbTransport : ITransport
 
         var portName = _serialPort.PortName;
 
-        MeshCoreSdkEventSource.Log.CommandSending((byte)command, portName);
+        MeshCoreSdkEventSource.Log.CommandSending(command, portName);
 
         // Build payload: command byte + data
         var payload = new byte[1 + data.Length];
@@ -180,7 +180,7 @@ public class UsbTransport : ITransport
             var response = await responseTask.ConfigureAwait(false);
 
             MeshCoreSdkEventSource.Log.CommandSent((byte)command, portName);
-            MeshCoreSdkEventSource.Log.ResponseReceived((byte)command, response.Payload.FirstOrDefault(), portName);
+            MeshCoreSdkEventSource.Log.ResponseReceived(command, response.GetResponseCode(), portName);
 
             return response;
         }
@@ -467,10 +467,6 @@ public class UsbTransport : ITransport
         if (startIndex == -1)
         {
             // No start byte found, clear buffer
-            if (buffer.Count > 0)
-            {
-                MeshCoreSdkEventSource.Log.NoStartByteFound(buffer.Count);
-            }
             buffer.Clear();
             return false;
         }

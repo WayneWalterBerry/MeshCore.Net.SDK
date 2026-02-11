@@ -6,6 +6,7 @@ namespace MeshCore.Net.SDK.Protocol
 {
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using MeshCore.Net.SDK.Serialization;
 
     /// <summary>
     /// Represents a MeshCore protocol frame
@@ -58,7 +59,7 @@ namespace MeshCore.Net.SDK.Protocol
         /// Gets the response code from the payload for JSON serialization
         /// </summary>
         [JsonPropertyName("response_code")]
-        public string? ResponseCode => GetResponseCode()?.ToString();
+        public string? ResponseCode => Payload!.Length> 0 ? GetResponseCode().ToString() : null;
 
         /// <summary>
         /// Gets the status from the payload for JSON serialization
@@ -175,18 +176,10 @@ namespace MeshCore.Net.SDK.Protocol
         /// <summary>
         /// Gets the response code from the payload (first byte for outbound frames)
         /// </summary>
-        /// <returns>The response code if valid, otherwise null</returns>
-        public MeshCoreResponseCode? GetResponseCode()
+        /// <returns>The response code</returns>
+        public MeshCoreResponseCode GetResponseCode()
         {
-            if (Payload.Length == 0)
-                return null;
-
-            if (Enum.IsDefined(typeof(MeshCoreResponseCode), Payload[0]))
-            {
-                return (MeshCoreResponseCode)Payload[0];
-            }
-
-            return null;
+            return MeshCoreResponseCodeSerialization.Instance.Deserialize(this.Payload);
         }
 
         /// <summary>
