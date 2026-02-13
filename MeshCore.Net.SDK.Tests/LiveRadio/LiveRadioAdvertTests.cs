@@ -72,8 +72,9 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
             contacts = (await client.GetContactsAsync(CancellationToken.None)).ToList();
 
             _output.WriteLine("Found {0} contacts to check advert paths for.", contacts.Count());
-        });
+        }, enableLogging: false);
 
+        List<(Contact contact, AdvertPathInfo pathInfo)> validAdvertPaths = new List<(Contact, AdvertPathInfo)>();
         await ExecuteIsolationTestAsync("GET ADVERT PATHES", async (client) =>
         {
             foreach (var contact in contacts)
@@ -82,9 +83,82 @@ public class LiveRadioAdvertTests : LiveRadioTestBase
                 AdvertPathInfo? advertPath = await client.TryGetAdvertPathAsync(contact.PublicKey);
 
                 // Assert – it is valid for there to be no known path yet; the main check is that the call succeeds.
-                _output.WriteLine($"GetAdvertPathAsync completed for contact '{contact.Name}' (PublicKey {contact.PublicKey}). {advertPath}");
+                _output.WriteLine($"TryGetAdvertPathAsync() completed for contact '{contact.Name}' (PublicKey {contact.PublicKey}). {advertPath}");
+
+                if (advertPath != null)
+                {
+                    validAdvertPaths.Add((contact, advertPath));
+                }
             }
         });
+
+        _output.WriteLine("Total valid advert paths found: {0}", validAdvertPaths.Count);
+
+        // Output table of advertisement paths
+        if (validAdvertPaths.Count > 0)
+        {
+            // Calculate column widths for better formatting
+            var maxNameWidth = Math.Max("Contact Name".Length,
+                validAdvertPaths.Max(p => p.contact.Name.Length)) + 1;
+            var maxPathWidth = Math.Max("Advertisement Path".Length,
+                validAdvertPaths.Max(p => Convert.ToBase64String(p.pathInfo.Path).Length + 2)); // +2 for backticks
+            var hopsWidth = "Hops".Length;
+            var timestampWidth = "Received Timestamp".Length + 2;
+
+            _output.WriteLine("");
+            _output.WriteLine("## Contacts with Advertisement Paths");
+            _output.WriteLine("");
+
+            // Header with proper padding
+            _output.WriteLine("| {0} | {1} | {2} | {3} |",
+                "Contact Name".PadRight(maxNameWidth),
+                "Hops".PadRight(hopsWidth),
+                "Advertisement Path".PadRight(maxPathWidth),
+                "Received Timestamp".PadRight(timestampWidth));
+
+            _output.WriteLine("|{0}|{1}|{2}|{3}|",
+                new string('-', maxNameWidth + 2),
+                new string('-', hopsWidth + 2),
+                new string('-', maxPathWidth + 2),
+                new string('-', timestampWidth + 2));
+
+            foreach (var (contact, pathInfo) in validAdvertPaths.OrderBy(p => p.pathInfo.Path.Length))
+            {
+                var pathStr = $"`{Convert.ToBase64String(pathInfo.Path)}`";
+                var timestampStr = pathInfo.ReceivedTimestamp.ToString("yyyy-MM-ddTHH:mm:ssZ") ?? "Unknown";
+
+                _output.WriteLine("| {0} | {1} | {2} | {3} |",
+                    contact.Name.PadRight(maxNameWidth),
+                    pathInfo.Path.Length.ToString().PadRight(hopsWidth),
+                    pathStr.PadRight(maxPathWidth),
+                    timestampStr.PadRight(timestampWidth));
+            }
+
+            _output.WriteLine("");
+            _output.WriteLine("## Summary Statistics");
+            _output.WriteLine("");
+            _output.WriteLine("- **Total contacts tested**: {0}", contacts.Count);
+            _output.WriteLine("- **Contacts with advertisement paths**: {0}", validAdvertPaths.Count);
+            _output.WriteLine("- **Contacts without advertisement paths**: {0}", contacts.Count - validAdvertPaths.Count);
+            _output.WriteLine("- **Hop count range**: {0}-{1} hops",
+                validAdvertPaths.Min(p => p.pathInfo.Path.Length),
+                validAdvertPaths.Max(p => p.pathInfo.Path.Length));
+
+            var hopCounts = validAdvertPaths.GroupBy(p => p.pathInfo.Path.Length).OrderByDescending(g => g.Count()).First();
+            _output.WriteLine("- **Most common hop count**: {0} hops ({1} contacts)",
+                hopCounts.Key, hopCounts.Count());
+
+            var shortestPath = validAdvertPaths.OrderBy(p => p.pathInfo.Path.Length).First();
+            var longestPath = validAdvertPaths.OrderByDescending(p => p.pathInfo.Path.Length).First();
+            _output.WriteLine("- **Shortest path**: {0} ({1} hops)",
+                shortestPath.contact.Name, shortestPath.pathInfo.Path.Length);
+            _output.WriteLine("- **Longest path**: {0} ({1} hops)",
+                longestPath.contact.Name, longestPath.pathInfo.Path.Length);
+        }
+        else
+        {
+            _output.WriteLine("No advertisement paths found for any contacts.");
+        }
     }
 
     /// <summary>

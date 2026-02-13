@@ -44,23 +44,9 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
 
             await ExecuteIsolationTestAsync("Discover Path", async (client) =>
             {
-                /*
-                {
-                  "public_key": "2fbe6a2f4386f7ab6da30cc2bc966ef73ef52f0a8f1e033503ddad5cc9ddaff8",
-                  "type": 2,
-                  "flags": 0,
-                  "out_path_len": -1,
-                  "out_path": "",
-                  "adv_name": "BLI_fugazi",
-                  "last_advert": 1770188851,
-                  "adv_lat": 48.766948,
-                  "adv_lon": -122.47557,
-                  "lastmod": 1770186592
-                }
-                */
                 var contact = contacts
                     .Where(contact => contact.NodeType == NodeType.Repeater)
-                    .Where(contact => contact.Name == "BLI_fugazi").First();
+                    .Where(contact => contact.Name == "VE7NA - Cottle Hill").First();
 
                 using (var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
                 {
@@ -80,16 +66,14 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
             await ExecuteIsolationTestAsync("Get Contacts", async (client) =>
             {
                 contacts = await client.GetContactsAsync(CancellationToken.None);
-            });
+            }, enableLogging: false);
 
-
+            IOrderedEnumerable<Contact> repeaters = contacts
+                .Where(contact => contact.NodeType == NodeType.Repeater)
+                .OrderBy(_ => Guid.NewGuid());
 
             await ExecuteIsolationTestAsync("Get Neighbors", async (client) =>
             {
-                IOrderedEnumerable<Contact> repeaters = contacts
-                    .Where(contact => contact.NodeType == NodeType.Repeater)
-                    .OrderBy(_ => Guid.NewGuid());
-
                 foreach (Contact contact in repeaters)
                 {
                     // Act - Non-null means success, empty list is still a valid response
@@ -118,34 +102,20 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
         /// </remarks>
         /// <returns></returns>
         [Fact]
-        public async Task Test_03_TryTraceAsync_ShouldSucceed()
+        public async Task Test_03_TrySingleHopTraceAsync_ShouldSucceed()
         {
             IEnumerable<Contact> contacts = Enumerable.Empty<Contact>();
 
             await ExecuteIsolationTestAsync("Get Contacts", async (client) =>
             {
                 contacts = await client.GetContactsAsync(CancellationToken.None);
-            });
+            }, enableLogging: false);
 
-            /*
-            {
-              "public_key": "2fbe6a2f4386f7ab6da30cc2bc966ef73ef52f0a8f1e033503ddad5cc9ddaff8",
-              "type": 2,
-              "flags": 0,
-              "out_path_len": -1,
-              "out_path": "",
-              "adv_name": "BLI_fugazi",
-              "last_advert": 1770188851,
-              "adv_lat": 48.766948,
-              "adv_lon": -122.47557,
-              "lastmod": 1770186592
-            }
-            */
             var contact = contacts
                 .Where(contact => contact.NodeType == NodeType.Repeater)
-                .Where(contact => contact.Name == "BLI_fugazi").First();
+                .Where(contact => contact.Name == "🐋 // Samish Crest").First();
 
-            await ExecuteIsolationTestAsync("Discover Path", async (client) =>
+            await ExecuteIsolationTestAsync("Try Single Hop Trace", async (client) =>
             {
                 // Act - no exception means success
                 var path = await client.TrySingleHopTraceAsync(contact);
@@ -171,26 +141,12 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
                 contacts = await client.GetContactsAsync(CancellationToken.None);
             }, enableLogging: false);
 
+            var contact = contacts
+                .Where(contact => contact.NodeType == NodeType.Repeater)
+                .Where(contact => contact.Name == "VE7NA - Cottle Hill").First();
+
             await ExecuteIsolationTestAsync("Request Status", async (client) =>
             {
-                /*
-                {
-                  "public_key": "2fbe6a2f4386f7ab6da30cc2bc966ef73ef52f0a8f1e033503ddad5cc9ddaff8",
-                  "type": 2,
-                  "flags": 0,
-                  "out_path_len": -1,
-                  "out_path": "",
-                  "adv_name": "BLI_fugazi",
-                  "last_advert": 1770188851,
-                  "adv_lat": 48.766948,
-                  "adv_lon": -122.47557,
-                  "lastmod": 1770186592
-                }
-                */
-                var contact = contacts
-                    .Where(contact => contact.NodeType == NodeType.Repeater)
-                    .Where(contact => contact.Name == "BLI_fugazi").First();
-
                 using (var cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
                 {
                     // Act - Non-null means success, empty list is still a valid response

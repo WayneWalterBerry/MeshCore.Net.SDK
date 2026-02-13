@@ -1,3 +1,4 @@
+using MeshCore.Net.SDK.Protocol;
 using Microsoft.Extensions.Logging;
 
 namespace MeshCore.Net.SDK.Logging;
@@ -107,7 +108,7 @@ public static partial class LoggerExtensions
         EventId = 2002,
         Level = LogLevel.Debug,
         Message = "Command sent successfully: {Command} to device: {DeviceId}")]
-    public static partial void LogCommandSent(this ILogger logger, byte command, string deviceId);
+    public static partial void LogCommandSent(this ILogger logger, MeshCoreCommand command, string deviceId);
 
     /// <summary>
     /// Logs when a response is received from a device

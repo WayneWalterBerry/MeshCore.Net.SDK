@@ -230,7 +230,6 @@ public class MeshCoreClient : IDisposable
         var operationName = nameof(GetDeviceInfoAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -1031,7 +1030,6 @@ public class MeshCoreClient : IDisposable
         var operationName = nameof(GetPublicChannelAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -1097,15 +1095,16 @@ public class MeshCoreClient : IDisposable
         if (channelConfig.Name.Length > 31)
             throw new ArgumentException("Channel name cannot exceed 31 characters", nameof(channelConfig));
 
-        if (channelConfig.Frequency <= 0)
+        // Frequency validation: hashtag channels (starting with '#') derive their
+        // configuration from the name via firmware, so Frequency = 0 is valid.
+        // For non-hashtag channels, a positive frequency is required.
+        if (channelConfig.Frequency <= 0 && !channelConfig.Name.StartsWith('#'))
             throw new ArgumentException("Channel frequency must be greater than 0", nameof(channelConfig));
 
         var deviceId = _transport.ConnectionId ?? "Unknown";
         var operationName = nameof(SetChannelAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}, channel: {ChannelName} (Index: {ChannelIndex})",
-            operationName, deviceId, channelConfig.Name, channelConfig.Index);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -1138,31 +1137,17 @@ public class MeshCoreClient : IDisposable
                 var status = response.GetStatus();
                 var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
 
-                // If the device doesn't support channel operations, provide a graceful fallback
-                if (status == MeshCoreStatus.InvalidCommand)
+                var errorMessage = status switch
                 {
-                    _logger.LogInformation("Device {DeviceId} does not support CMD_SET_CHANNEL, returning simulated channel configuration", deviceId);
+                    MeshCoreStatus.InvalidCommand =>
+                        $"CMD_SET_CHANNEL returned InvalidCommand for channel '{channelConfig.Name}' (index {channelConfig.Index}). " +
+                        $"This indicates a calling pattern issue. Sent payload: {Convert.ToHexString(data)}. " +
+                        $"Expected binary format: [index(1)][name(32)][secret(16)] = 49 bytes. " +
+                        $"Review protocol specification and reference implementations.",
+                    _ => $"Failed to set channel configuration (status: 0x{statusByte:X2})"
+                };
 
-                    // Return a configuration that represents what we attempted to set
-                    // This allows the API to work even if the device doesn't support channel operations
-                    var simulatedConfig = new Channel
-                    {
-                        Index = channelConfig.Index, // Use the actual ID (generated or provided)
-                        Name = channelConfig.Name,
-                        Frequency = channelConfig.Frequency,
-                        IsEncrypted = channelConfig.IsEncrypted,
-                        EncryptionKey = channelConfig.EncryptionKey
-                    };
-
-                    var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                    _logger.LogDebug("Operation completed with simulation: {OperationName} for device: {DeviceId} in {Duration}ms", operationName, deviceId, (long)duration);
-                    MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
-
-                    return simulatedConfig;
-                }
-
-                // For other errors, throw the exception
-                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, "Failed to set channel configuration");
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, errorMessage);
 
                 _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte);
                 MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, ex.Message);
@@ -1222,7 +1207,13 @@ public class MeshCoreClient : IDisposable
         try
         {
             // Map channel names to numeric IDs by querying the device
-            var channelConfig = await GetChannelAsync(channelName);
+            var channelConfig = await TryGetChannelAsync(channelName);
+            if (channelConfig == null)
+            {
+                _logger.LogError("Channel '{ChannelName}' not found on device {DeviceId}. Cannot send message.", channelName, deviceId);
+                throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, 0x02,
+                    $"Channel '{channelName}' not found. Use CMD_SET_CHANNEL to configure the channel first.");
+            }
 
             _logger.LogDebug("Mapped channel '{ChannelName}' to index {channelConfig.Id} for device {DeviceId}",
                 channelName, channelConfig.Index.ToString(), deviceId);
@@ -1338,39 +1329,6 @@ public class MeshCoreClient : IDisposable
             MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, nameof(SendChannelMessageAsync));
             throw;
         }
-    }
-
-    /// <summary>
-    /// Maps hashtag channel names to numeric channel indices by querying the device
-    /// This discovers the actual channel configuration rather than making assumptions
-    /// </summary>
-    /// <param name="channelName">The channel name (without # prefix)</param>
-    /// <returns>Numeric channel index for the protocol</returns>
-    private async Task<Channel> GetChannelAsync(string channelName)
-    {
-        var deviceId = _transport.ConnectionId ?? "Unknown";
-
-        _logger.LogDebug("Mapping channel '{ChannelName}' to index for device {DeviceId}", channelName, deviceId);
-
-        // Get fresh channel mapping by querying the device
-        var channelMap = await GetChannelsAsync();
-
-        // Look for exact channel name match (case insensitive)
-        var targetChannelName = channelName.ToLowerInvariant();
-        foreach (var channelConfiguration in channelMap)
-        {
-            if (channelConfiguration.Name.ToLowerInvariant() == targetChannelName)
-            {
-                _logger.LogInformation("Found channel '{ChannelName}' at Index {ChannelIndex} on device {DeviceId}",
-                    channelName, channelConfiguration.Index, deviceId);
-
-                return channelConfiguration;
-            }
-        }
-
-        // If not found, channel does not exist on this device
-        _logger.LogError("Channel '{ChannelName}' not found on device {DeviceId}. Available channels should be queried first using GetChannelsAsync()", channelName, deviceId);
-        throw new ArgumentException($"Channel '{channelName}' was not found on device {deviceId}. Use GetChannelsAsync() to retrieve available channels.", nameof(channelName));
     }
 
     /// <summary>
@@ -1495,6 +1453,194 @@ public class MeshCoreClient : IDisposable
         return default(Channel);
     }
 
+    /// <summary>
+    /// Attempts to find a channel by name on the connected device by iterating through
+    /// all channel indices and comparing names case-insensitively.
+    /// </summary>
+    /// <param name="channelName">The channel name to search for (case-insensitive match).</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>
+    /// A task that represents the asynchronous operation. The task result contains the
+    /// <see cref="Channel"/> if a channel with the specified name is found; otherwise,
+    /// <see langword="null"/>.
+    /// </returns>
+    public async Task<Channel?> TryGetChannelAsync(string channelName, CancellationToken cancellationToken = default)
+    {
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+
+        _logger.LogDebug("Searching for channel '{ChannelName}' on device {DeviceId}", channelName, deviceId);
+
+        for (uint i = 0; i <= MaxChannelsSupported; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var channel = await TryGetChannelAsync(i);
+            if (channel != null && string.Equals(channel.Name, channelName, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("Found channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId}",
+                    channelName, channel.Index, deviceId);
+                return channel;
+            }
+        }
+
+        _logger.LogDebug("Channel '{ChannelName}' not found on device {DeviceId}", channelName, deviceId);
+        return null;
+    }
+
+    /// <summary>
+    /// Ensures that a hashtag channel exists on the connected device. If a channel with the
+    /// specified name already exists, it is returned unchanged. Otherwise, the channel is
+    /// created in the first available slot.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Hashtag channels (names beginning with <c>#</c>) use encryption keys that are
+    /// automatically derived from the channel name by the firmware. All devices that
+    /// create the same <c>#name</c> will compute the same key, allowing them to
+    /// communicate without out-of-band key exchange.
+    /// </para>
+    /// <para>
+    /// This corresponds to the Python CLI's <c>add_channel #name</c> command, which
+    /// finds the first empty channel slot and calls
+    /// <c>mc.commands.set_channel(idx, name, key=None)</c>, letting the firmware
+    /// derive the secret from the channel name via SHA-256.
+    /// </para>
+    /// <para>
+    /// Index 0 (the default public channel) is never overwritten. The search for an
+    /// empty slot begins at index 1.
+    /// </para>
+    /// </remarks>
+    /// <param name="channelName">
+    /// The hashtag channel name (e.g., <c>"#MyChannel"</c> or <c>"MyChannel"</c>).
+    /// If the leading <c>#</c> is omitted it is prepended automatically.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// A cancellation token that can be used to cancel the operation.
+    /// </param>
+    /// <returns>
+    /// A task whose result is the <see cref="Channel"/> that was found or created on the device.
+    /// When the channel already exists, the existing configuration is returned without modification.
+    /// </returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="channelName"/> is <c>null</c>, empty, consists only of
+    /// whitespace, or exceeds the 31-character firmware limit.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when no empty channel slot is available on the device (all 40 slots are in use).
+    /// </exception>
+    /// <exception cref="ProtocolException">
+    /// Thrown when the device returns an error while querying or setting the channel.
+    /// </exception>
+    public async Task<Channel> EnsureHashTagChannelAsync(
+        string channelName,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(channelName))
+        {
+            throw new ArgumentException("Channel name cannot be null or empty.", nameof(channelName));
+        }
+
+        // Normalize: ensure name starts with '#'
+        if (!channelName.StartsWith('#'))
+        {
+            channelName = "#" + channelName;
+        }
+
+        if (channelName.Length > 31)
+        {
+            throw new ArgumentException(
+                $"Channel name cannot exceed 31 characters (got {channelName.Length}).",
+                nameof(channelName));
+        }
+
+        var deviceId = _transport.ConnectionId ?? "Unknown";
+        const string operationName = nameof(EnsureHashTagChannelAsync);
+        var startTime = DateTimeOffset.UtcNow;
+
+        _logger.LogDebug(
+            "Starting operation: {OperationName} for device: {DeviceId}, channelName='{ChannelName}'",
+            operationName, deviceId, channelName);
+        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+
+        try
+        {
+            int? emptySlot = null;
+
+            for (uint i = 1; i <= MaxChannelsSupported; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var channel = await TryGetChannelAsync(i);
+                if (channel == null && emptySlot == null)
+                {
+                    emptySlot = (int)i;
+                }
+
+                if (channel != null && string.Equals(channel.Name, channelName, StringComparison.OrdinalIgnoreCase))
+                {
+                    var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                    _logger.LogDebug(
+                        "Channel '{ChannelName}' already exists at index {ChannelIndex} on device {DeviceId} in {Duration}ms",
+                        channelName, channel.Index, deviceId, (long)duration);
+                    MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+                    return channel;
+                }
+            }
+
+            if (emptySlot == null)
+            {
+                throw new InvalidOperationException(
+                    $"No empty channel slots available on device {deviceId}. " +
+                    $"All {MaxChannelsSupported} slots are in use. " +
+                    $"Remove an existing channel before adding '{channelName}'.");
+            }
+
+            _logger.LogDebug(
+                "Adding hashtag channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId}",
+                channelName, emptySlot.Value, deviceId);
+
+            // 3. Create the channel.
+            //    For hashtag (#) channels, the encryption key is derived from
+            //    SHA-256(name)[0:16] by the serializer. This matches the Python CLI
+            //    behavior: sha256(channel_name.encode("utf-8")).digest()[0:16]
+            var newChannel = new Channel
+            {
+                Index = (byte)emptySlot.Value,
+                Name = channelName,
+                Frequency = 0,
+                IsEncrypted = true, // Hashtag channels always have a derived key
+                EncryptionKey = null // Serializer computes SHA-256 key for # channels
+            };
+
+            var setResult = await SetChannelAsync(newChannel);
+
+            // 4. Re-read the channel from the device to get the firmware-generated key
+            //    (matches Python CLI pattern which does get_channel after set_channel)
+            var confirmedChannel = await TryGetChannelAsync((uint)emptySlot.Value);
+
+            var finalChannel = confirmedChannel ?? setResult;
+
+            var finalDuration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+
+            _logger.LogInformation(
+                "Hashtag channel '{ChannelName}' created at index {ChannelIndex} on device {DeviceId} in {Duration}ms. " +
+                "Encrypted={IsEncrypted}, Key={Key}",
+                channelName, emptySlot.Value, deviceId, (long)finalDuration,
+                finalChannel.IsEncrypted,
+                finalChannel.EncryptionKey ?? "(firmware-derived)");
+
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)finalDuration);
+
+            return finalChannel;
+        }
+        catch (Exception ex) when (ex is not ProtocolException and not InvalidOperationException and not ArgumentException)
+        {
+            _logger.LogUnexpectedError(ex, operationName);
+            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            throw;
+        }
+    }
+
     #endregion
 
     #region Configuration Operations
@@ -1521,7 +1667,6 @@ public class MeshCoreClient : IDisposable
         var operationName = nameof(GetRadioStatsAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -1733,7 +1878,6 @@ public class MeshCoreClient : IDisposable
         var operationName = nameof(GetBatteryAndStorageAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -1834,8 +1978,6 @@ public class MeshCoreClient : IDisposable
         var operationName = nameof(SendSelfAdvertAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}, flood mode: {UseFloodMode}",
-            operationName, deviceId, advertisement.UseFloodMode);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -2174,125 +2316,105 @@ public class MeshCoreClient : IDisposable
     /// <exception cref="TimeoutException">Thrown when the path discovery operation times out</exception>
     public async Task<PathDiscoveryResult?> TryDiscoverPathAsync(Contact contact, CancellationToken cancellationToken = default)
     {
-        return await this.SendCommandAsync<PathDiscoveryResult>(
-            MeshCoreCommand.CMD_SEND_PATH_DISCOVERY_REQ,
-            payloadFunc: () =>
-            {
-                var payload = new byte[1 + contact.PublicKey.Value.Length];
-                payload[0] = 0x00; // Reserved byte
-                Buffer.BlockCopy(contact.PublicKey.Value, 0, payload, 1, contact.PublicKey.Value.Length);
-                return payload;
-            },
-            frameFunc: (frame, taskCompletionSource) =>
-            {
-                if (!frame.IsOutbound) return;
-
-                var responseCode = frame.GetResponseCode();
-
-                // Direct path response
-                if (responseCode == MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE)
+        try
+        {
+            return await this.SendCommandAsync<PathDiscoveryResult>(
+                MeshCoreCommand.CMD_SEND_PATH_DISCOVERY_REQ,
+                payloadFunc: () =>
                 {
-                    if (PathDiscoveryResultSerialization.Instance.TryDeserialize(frame.Payload, out var result))
-                    {
-                        taskCompletionSource.TrySetResult(result);
-                    }
-                }
-                // RF log containing path response
-                else if (responseCode == MeshCoreResponseCode.RESP_CODE_LOG_RX_DATA)
+                    var payload = new byte[1 + contact.PublicKey.Value.Length];
+                    payload[0] = 0x00; // Reserved byte
+                    Buffer.BlockCopy(contact.PublicKey.Value, 0, payload, 1, contact.PublicKey.Value.Length);
+                    return payload;
+                },
+                frameFunc: (frame, taskCompletionSource) =>
                 {
-                    _logger.LogDebug("Received LOG_RX_DATA frame while waiting for path discovery response. Attempting to parse for path response...");
+                    if (!frame.IsOutbound) return;
 
-                    if (LogRxDataFrameSerialization.Instance.TryDeserialize(frame.Payload, out LogRxDataFrame? logRxDataFrame) && (logRxDataFrame != null))
+                    var responseCode = frame.GetResponseCode();
+
+                    // PATH_DISCOVERY_RESPONSE (0x8D) arrives as a direct top-level frame
+                    // from the firmware, not wrapped inside LOG_RX_DATA.
+                    if (responseCode == MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE)
                     {
-                        _logger.LogDebug($"Parsed LOG_RX_DATA frame {logRxDataFrame} with PayloadType: {logRxDataFrame.PayloadType}");
-
-                        // Now inspect the RF packet type, NOT a response code
-                        switch (logRxDataFrame.PayloadType)
+                        if (PathDiscoveryResultSerialization.Instance.TryDeserialize(frame.Payload, out var result))
                         {
-                            case RfPayloadType.Advert:
-                                // Handle advertisement packet
-                                break;
-
-                            case RfPayloadType.GroupText:
-                                // Handle channel message packet
-                                break;
-
-                            case RfPayloadType.Response:
-                                // This might contain a PATH_RESPONSE (0x8D) in the packet payload
-                                // You need to parse further into logFrame.Payload to find it
-                                if (LogRxResponsePayloadSerialization.Instance.TryDeserialize(logRxDataFrame.Payload, out LogRxResponsePayload logRxResponsePayload) && (logRxResponsePayload != null))
-                                {
-                                    _logger.LogDebug($"Parsed LOG_RX_DATA payload as LogRxResponsePayload: {logRxResponsePayload}");
-
-                                    switch (logRxResponsePayload.ResponseCode)
-                                    {
-                                        case MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE:
-                                            if (PathDiscoveryResultSerialization.Instance.TryDeserialize(logRxResponsePayload.Payload, out var result))
-                                            {
-                                                taskCompletionSource.TrySetResult(result);
-                                            }
-                                            break;
-                                    }
-                                }
-
-                                break;
+                            taskCompletionSource.TrySetResult(result);
                         }
-
                     }
-                }
-            },
-            cancellationToken);
+                },
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug(
+                "Path discovery timed out for contact {ContactName} ({PublicKey}) on device {DeviceId}. " +
+                "The target node may be offline or out of range.",
+                contact.Name, contact.PublicKey, _transport.ConnectionId ?? "Unknown");
+            return null;
+        }
     }
 
     /// <summary>
-    /// Attempts to trace the network path to the specified contact asynchronously and returns the ??? if successful.
+    /// Attempts to trace the network path to the specified repeater or room server contact
+    /// using the <c>CMD_SEND_TRACE_PATH</c> command with a single-hop path.
     /// </summary>
-    /// <remarks>This method initiates a network trace to the given contact and may return null if the trace
-    /// cannot be completed or no neighbors are found. The operation is performed asynchronously and can be cancelled
-    /// using the provided cancellation token.</remarks>
-    /// <param name="contact">The contact to which the trace operation is directed. Cannot be null.</param>
+    /// <remarks>
+    /// This sends a trace packet through the specified repeater and waits for
+    /// <c>PUSH_CODE_TRACE_DATA (0x89)</c> containing hop-by-hop SNR measurements.
+    /// The wire format for CMD_SEND_TRACE_PATH payload is:
+    /// <code>
+    /// [tag: uint32 LE][auth_code: uint32 LE][flags: uint8][path_bytes...]
+    /// </code>
+    /// For a single-hop trace, path_bytes is the first byte of the contact's public key.
+    /// </remarks>
+    /// <param name="contact">The repeater or room server contact to trace to. Cannot be null.</param>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the trace operation.</param>
-    /// <returns>A NeighborList containing the discovered neighbors if the trace succeeds; otherwise, null.</returns>
+    /// <returns>A PathDiscoveryResult if the trace succeeds; otherwise, null.</returns>
     public async Task<PathDiscoveryResult?> TrySingleHopTraceAsync(
         Contact contact,
         CancellationToken cancellationToken = default)
     {
-        // For repeaters/rooms, we can trace TO them using their pubkey prefix
-        // The path is just the first 1-2 bytes of their pubkey as a hex string
-        // For a single hop, we just need the destination's prefix
-
-        string pathString;
-
-        if (contact.NodeType == NodeType.Repeater || contact.NodeType == NodeType.RoomServer)
+        if (contact.NodeType != NodeType.Repeater && contact.NodeType != NodeType.RoomServer)
         {
-            // Trace TO the repeater/room itself using its pubkey prefix
-            // Use first byte (2 hex chars) as the destination
-            pathString = contact.PublicKey.Value[0].ToString("x2");
-        }
-        else
-        {
-            // For clients, we can't trace TO them, but we can discover their path
-            // This should use CMD_SEND_PATH_DISCOVERY_REQ instead
-            _logger.LogWarning("Single hop trace not applicable to client contacts, use DiscoverPathAsync instead");
+            _logger.LogWarning("Single hop trace not applicable to client contacts, use TryDiscoverPathAsync instead");
             return null;
         }
 
-        return await SendAsync(
-            MeshCoreCommand.CMD_SEND_TRACE_PATH,
-            MeshCoreResponseCode.RESP_CODE_PATH_RESPONSE,
-            payloadFunc: () =>
-            {
-                // CMD_SEND_TRACE_PATH expects a comma-separated string of hex byte pairs
-                var payload = new byte[1];
-                payload[0] = contact.PublicKey.Value[0];
-                return payload;
-            },
-            PathDiscoveryResultSerialization.Instance,
-            cancellationToken);
+        try
+        {
+            return await SendAsync(
+                MeshCoreCommand.CMD_SEND_TRACE_PATH,
+                MeshCoreResponseCode.PUSH_CODE_TRACE_DATA,
+                payloadFunc: () =>
+                {
+                    var traceParams = new SendTracePathParams
+                    {
+                        Tag = (uint)Random.Shared.Next(1, int.MaxValue),
+                        AuthCode = 0,
+                        Flags = 0x00,
+                        Path = new[] { contact.PublicKey.Value[0] } // single-hop: first byte of pubkey
+                    };
+
+                    return SendTracePathParamsSerialization.Instance.Serialize(traceParams);
+                },
+                PathDiscoveryResultSerialization.Instance,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug(
+                "Trace timed out for contact {ContactName} ({PublicKey}) on device {DeviceId}. " +
+                "The target node may be offline or out of range.",
+                contact.Name, contact.PublicKey, _transport.ConnectionId ?? "Unknown");
+            return null;
+        }
     }
 
     /// <summary>
-    /// Attempts to retrieve the list of neighboring contacts from the specified repeater asynchronously.
+    /// Attempts to retrieve the list of neighboring contacts from the specified repeater
+    /// by issuing a binary neighbours request via <c>CMD_SEND_BINARY_REQ</c> with
+    /// <c>BinaryReqType.NEIGHBOURS (0x06)</c>.
     /// </summary>
     /// <param name="repeaterContact">The contact information for the repeater from which to request the neighbor list. Cannot be null.</param>
     /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
@@ -2307,47 +2429,83 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            byte[]? binaryData = await SendRemoteCommandAsync(
-                repeaterContact,
-                "neighbors",
+            // CMD_SEND_BINARY_REQ (0x32) payload:
+            //   [pub_key(32)][binary_req_type(1)][request_data...]
+            // BinaryReqType.NEIGHBOURS = 0x06
+            // Request data format (from Python req_neighbours_async):
+            //   [version(1)][count(1)][offset(2 LE)][order_by(1)][pubkey_prefix_length(1)][random_tag(4 LE)]
+            const byte BINARY_REQ_TYPE_NEIGHBOURS = 0x06;
+            const byte PUBKEY_PREFIX_LENGTH = 4;
+            byte count = 255;
+            ushort offset = 0;
+            byte orderBy = 0;
+            byte version = 0;
+            var randomTag = (uint)Random.Shared.Next(1, int.MaxValue);
+
+            var pubkey = repeaterContact.PublicKey.Value;
+            var payload = new byte[pubkey.Length + 1 + 10]; // pubkey + req_type + request_data
+            Buffer.BlockCopy(pubkey, 0, payload, 0, pubkey.Length);
+            var pos = pubkey.Length;
+            payload[pos++] = BINARY_REQ_TYPE_NEIGHBOURS;
+            payload[pos++] = version;
+            payload[pos++] = count;
+            BitConverter.GetBytes(offset).CopyTo(payload, pos); pos += 2;
+            payload[pos++] = orderBy;
+            payload[pos++] = PUBKEY_PREFIX_LENGTH;
+            BitConverter.GetBytes(randomTag).CopyTo(payload, pos);
+
+            _logger.LogDebug(
+                "Sending CMD_SEND_BINARY_REQ (NEIGHBOURS) to {ContactName} on device {DeviceId}",
+                repeaterContact.Name,
+                deviceId);
+
+            return await this.SendCommandAsync<NeighborList>(
+                MeshCoreCommand.CMD_SEND_BINARY_REQ,
+                payloadFunc: () => payload,
+                frameFunc: (frame, taskCompletionSource) =>
+                {
+                    if (!frame.IsOutbound) return;
+
+                    var responseCode = frame.GetResponseCode();
+
+                    // PUSH_CODE_BINARY_RESPONSE (0x8C) carries the neighbours data
+                    // Wire format: [0x8C][reserved][tag(4)][response_data...]
+                    if (responseCode == MeshCoreResponseCode.PUSH_CODE_BINARY_RESPONSE)
+                    {
+                        if (frame.Payload.Length < 6) return; // Need at least resp_code + reserved + tag(4)
+
+                        // Extract response_data (after resp_code(1) + reserved(1) + tag(4))
+                        var responseData = new byte[frame.Payload.Length - 6];
+                        Buffer.BlockCopy(frame.Payload, 6, responseData, 0, responseData.Length);
+
+                        if (NeighborListSerialization.Instance.TryDeserialize(responseData, PUBKEY_PREFIX_LENGTH, out var result))
+                        {
+                            taskCompletionSource.TrySetResult(result);
+                        }
+                    }
+                },
                 cancellationToken);
-
-            if (binaryData == null)
-            {
-                return null;
-            }
-
-            // Deserialize the binary neighbor list data
-            if (NeighborListSerialization.Instance.TryDeserialize(binaryData, out var neighborList))
-            {
-                return neighborList;
-            }
         }
-        catch (TaskCanceledException ex)
+        catch (OperationCanceledException)
         {
-            // No response from Contact
-
-            _logger.LogUnexpectedError(ex, operationName);
-            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
-
-            // For neighbor list retrieval, we treat any exception as a failure to get neighbors and return null.
+            _logger.LogDebug(
+                "Neighbours request timed out for contact {ContactName} ({PublicKey}) on device {DeviceId}. " +
+                "The target node may be offline or out of range.",
+                repeaterContact.Name, repeaterContact.PublicKey, deviceId);
             return null;
         }
         catch (Exception ex)
         {
             _logger.LogUnexpectedError(ex, operationName);
             MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
-
-            // For neighbor list retrieval, we treat any exception as a failure to get neighbors and return null.
             return null;
         }
-
-        return null;
     }
 
     /// <summary>
     /// Attempts to retrieve a high-level status snapshot from the specified repeater or room server
-    /// contact by issuing a remote <c>status</c> command over the MeshCore CLI channel.
+    /// contact by issuing a binary status request via <c>CMD_SEND_BINARY_REQ</c> with
+    /// <c>BinaryReqType.STATUS (0x01)</c>.
     /// </summary>
     /// <param name="contact">
     /// The remote contact (typically a repeater or room server) from which to request status
@@ -2360,7 +2518,7 @@ public class MeshCoreClient : IDisposable
     /// A task that represents the asynchronous operation. The task result contains a
     /// <see cref="StatusInfo"/> instance when the status response is successfully retrieved
     /// and deserialized; otherwise, <c>null</c> if the request fails, times out, or the payload
-    /// cannot be interpreted as a status document.
+    /// cannot be interpreted.
     /// </returns>
     public async Task<StatusInfo?> TryRequestStatusAsync(
         Contact contact,
@@ -2371,38 +2529,45 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            // Use the same remote CLI mechanism as neighbor list, but issue "status"
-            // so the remote repeater/room server returns its current status snapshot.
-            byte[]? binaryData = await SendRemoteCommandAsync(
-                contact,
-                "status",
-                cancellationToken);
+            // CMD_SEND_BINARY_REQ (0x32) payload:
+            //   [pub_key(32)][binary_req_type(1)]
+            // BinaryReqType.STATUS = 0x01
+            const byte BINARY_REQ_TYPE_STATUS = 0x01;
+            var payload = new byte[contact.PublicKey.Value.Length + 1];
+            Buffer.BlockCopy(contact.PublicKey.Value, 0, payload, 0, contact.PublicKey.Value.Length);
+            payload[contact.PublicKey.Value.Length] = BINARY_REQ_TYPE_STATUS;
 
-            if (binaryData == null || binaryData.Length == 0)
-            {
-                return null;
-            }
-
-            // Deserialize the status payload into a StatusInfo model.
-            if (StatusInfoSerialization.Instance.TryDeserialize(binaryData, out var statusInfo) && statusInfo != null)
-            {
-                return statusInfo;
-            }
-
-            // If deserialization fails, treat this as a soft failure and return null.
             _logger.LogDebug(
-                "Failed to deserialize status response from {ContactName} on device {DeviceId}. Payload length: {Length} bytes",
+                "Sending CMD_SEND_BINARY_REQ (STATUS) to {ContactName} on device {DeviceId}",
                 contact.Name,
-                deviceId,
-                binaryData.Length);
+                deviceId);
 
-            return null;
+            return await this.SendCommandAsync<StatusInfo>(
+                MeshCoreCommand.CMD_SEND_BINARY_REQ,
+                payloadFunc: () => payload,
+                frameFunc: (frame, taskCompletionSource) =>
+                {
+                    if (!frame.IsOutbound) return;
+
+                    var responseCode = frame.GetResponseCode();
+
+                    // PUSH_CODE_STATUS_RESPONSE (0x87) is the direct status response
+                    if (responseCode == MeshCoreResponseCode.PUSH_CODE_STATUS_RESPONSE)
+                    {
+                        if (StatusInfoSerialization.Instance.TryDeserialize(frame.Payload, out var result))
+                        {
+                            taskCompletionSource.TrySetResult(result);
+                        }
+                    }
+                },
+                cancellationToken);
         }
-        catch (TaskCanceledException ex)
+        catch (OperationCanceledException)
         {
-            // Remote node did not reply within the expected window or the call was cancelled.
-            _logger.LogUnexpectedError(ex, operationName);
-            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
+            _logger.LogDebug(
+                "Status request timed out for contact {ContactName} ({PublicKey}) on device {DeviceId}. " +
+                "The target node may be offline or out of range.",
+                contact.Name, contact.PublicKey, deviceId);
             return null;
         }
         catch (Exception ex)
@@ -2436,7 +2601,6 @@ public class MeshCoreClient : IDisposable
         const string operationName = nameof(GetAutoAddMaskAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -2584,7 +2748,6 @@ public class MeshCoreClient : IDisposable
         const string operationName = nameof(GetAutoAddEnabledAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -2915,28 +3078,23 @@ public class MeshCoreClient : IDisposable
                             // Byte Offset  | Field                | Size
                             // ------------ | ---------------------| ------
                             // 0            | RESP_CODE(0x06)      | 1
-                            // 1 - 4        | expected_ack         | 4
-                            // 5 - 8        | suggested_timeout    | 4 (little - endian uint32, in milliseconds)
+                            // 1            | txt_type             | 1
+                            // 2 - 5        | expected_ack         | 4 (little-endian uint32)
+                            // 6 - 9        | suggested_timeout    | 4 (little-endian uint32, in milliseconds)
 
                             _logger.LogDebug(
                                 "RESP_CODE_SENT payload hex: {PayloadHex}, length: {Length}",
                                 Convert.ToHexString(response.Payload),
                                 response.Payload.Length);
 
-                            if (response.Payload.Length >= 5)
-                            {
-                                var expected_ack = BitConverter.ToUInt32(response.Payload, 5);
-                            }
-
                             // Extract suggested timeout from response if available, or use provided/default timeout
                             TimeSpan effectiveTimeout = TimeSpan.FromSeconds(30);
 
-                            // Response payload for RESP_CODE_SENT typically contains suggested_timeout at bytes [1..4]
-                            if (response.Payload.Length >= 9)
+                            if (response.Payload.Length >= 10)
                             {
                                 try
                                 {
-                                    var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 5);
+                                    var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 6);
                                     if (suggestedTimeoutMs > 0)
                                     {
                                         effectiveTimeout = TimeSpan.FromMilliseconds(suggestedTimeoutMs * 1.2);
@@ -3089,16 +3247,43 @@ public class MeshCoreClient : IDisposable
             }
 
             // Wait for the asynchronous response frame (via frameFunc callback)
-            using (cancellationToken.Register(() => taskCompletionSource.TrySetCanceled()))
+            // Extract suggested timeout from RESP_CODE_SENT if available
+            TimeSpan effectiveTimeout = TimeSpan.FromSeconds(30); // Default fallback
+            if (responseCode == MeshCoreResponseCode.RESP_CODE_SENT && response.Payload.Length >= 10)
             {
-                var result = await taskCompletionSource.Task;
+                try
+                {
+                    var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 6) * 1.6;
+                    if (suggestedTimeoutMs > 0)
+                    {
+                        effectiveTimeout = TimeSpan.FromMilliseconds(suggestedTimeoutMs * 1.2);
+                        _logger.LogDebug(
+                            "Using device suggested timeout: {TimeoutMs}ms for async response to {Command}",
+                            effectiveTimeout.TotalMilliseconds, command);
+                    }
+                }
+                catch (Exception timeoutEx)
+                {
+                    _logger.LogDebug(timeoutEx, "Could not parse suggested timeout from command response, using default");
+                }
+            }
 
-                var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                _logger.LogDebug("Command {Command} completed for {DeviceId} in {Duration}ms",
-                    command, deviceId, (long)duration);
-                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+            using (var timeoutCts = new CancellationTokenSource(effectiveTimeout))
+            {
+                using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
+                {
+                    using (linkedCts.Token.Register(() => taskCompletionSource.TrySetCanceled()))
+                    {
+                        var result = await taskCompletionSource.Task;
 
-                return result;
+                        var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+                        _logger.LogDebug("Command {Command} completed for {DeviceId} in {Duration}ms",
+                            command, deviceId, (long)duration);
+                        MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+
+                        return result;
+                    }
+                }
             }
         }
         catch (Exception ex) when (ex is not ProtocolException and not OperationCanceledException)
@@ -3114,6 +3299,23 @@ public class MeshCoreClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends a MeshCore command asynchronously, waits for a response event, and deserializes the resulting payload to
+    /// the specified type.
+    /// </summary>
+    /// <remarks>If the device returns an error status, a ProtocolException is thrown with details about the
+    /// failure. The method uses a device-suggested timeout if available, otherwise defaults to 30 seconds. Unexpected
+    /// errors are logged and rethrown. The payload function should generate a valid payload for the specified command
+    /// to avoid protocol errors.</remarks>
+    /// <typeparam name="T">The type to which the response payload will be deserialized.</typeparam>
+    /// <param name="meshCoreCommand">The MeshCore command to send to the device.</param>
+    /// <param name="meshCoreResponseCode">The expected response code indicating the completion of the operation.</param>
+    /// <param name="payloadFunc">A function that generates the payload bytes to be sent with the command. The payload must conform to the
+    /// requirements of the specified command.</param>
+    /// <param name="binaryDeserializer">The deserializer used to convert the response payload into an instance of type T.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>A task representing the asynchronous operation. The task result contains the deserialized response of type T, or
+    /// null if deserialization fails.</returns>
     private async Task<T?> SendAsync<T>(
         MeshCoreCommand meshCoreCommand,
         MeshCoreResponseCode meshCoreResponseCode,
@@ -3125,7 +3327,6 @@ public class MeshCoreClient : IDisposable
         const string operationName = nameof(SendAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug("Starting operation: {OperationName} for device: {DeviceId}", operationName, deviceId);
         MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
 
         try
@@ -3180,11 +3381,11 @@ public class MeshCoreClient : IDisposable
 
                 // Extract suggested timeout from initial response (if available)
                 TimeSpan effectiveTimeout = TimeSpan.FromSeconds(30); // Default fallback
-                if (response.Payload.Length >= 5)
+                if (response.Payload.Length >= 10)
                 {
                     try
                     {
-                        var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 1);
+                        var suggestedTimeoutMs = BitConverter.ToUInt32(response.Payload, 6) * 1.6;
                         if (suggestedTimeoutMs > 0 && suggestedTimeoutMs < 60000)
                         {
                             effectiveTimeout = TimeSpan.FromMilliseconds(suggestedTimeoutMs);

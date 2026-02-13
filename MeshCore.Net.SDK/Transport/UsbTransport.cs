@@ -179,14 +179,14 @@ public class UsbTransport : ITransport
         {
             var response = await responseTask.ConfigureAwait(false);
 
-            MeshCoreSdkEventSource.Log.CommandSent((byte)command, portName);
+            MeshCoreSdkEventSource.Log.CommandSent(command, portName);
             MeshCoreSdkEventSource.Log.ResponseReceived(command, response.GetResponseCode(), portName);
 
             return response;
         }
         catch (MeshCoreTimeoutException)
         {
-            MeshCoreSdkEventSource.Log.CommandTimeout((byte)command, portName, 0);
+            MeshCoreSdkEventSource.Log.CommandTimeout(command, portName, 0);
             throw;
         }
     }
@@ -273,6 +273,14 @@ public class UsbTransport : ITransport
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
                 MeshCoreCommand.CMD_SEND_PATH_DISCOVERY_REQ =>
+                    responseCode == MeshCoreResponseCode.RESP_CODE_SENT ||
+                    responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+
+                MeshCoreCommand.CMD_SEND_BINARY_REQ =>
+                    responseCode == MeshCoreResponseCode.RESP_CODE_SENT ||
+                    responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
+
+                MeshCoreCommand.CMD_SEND_TRACE_PATH =>
                     responseCode == MeshCoreResponseCode.RESP_CODE_SENT ||
                     responseCode == MeshCoreResponseCode.RESP_CODE_ERR,
 
@@ -407,9 +415,9 @@ public class UsbTransport : ITransport
                     frameBuffer.Add(buffer[i]);
 
                     // Try to parse a complete frame
-                    if (TryParseFrame(frameBuffer, out var frame) && frame != null)
+                    if (TryParseFrame(frameBuffer, out MeshCoreFrame? frame) && frame != null)
                     {
-                        MeshCoreSdkEventSource.Log.FrameParsed(frame.StartByte, frame.Length, frame.Payload.Length);
+                        MeshCoreSdkEventSource.Log.FrameParsed(frame.GetResponseCode(), frame.Length, frame.Payload.Length);
 
                         FrameReceived?.Invoke(this, frame);
                         frameBuffer.Clear();

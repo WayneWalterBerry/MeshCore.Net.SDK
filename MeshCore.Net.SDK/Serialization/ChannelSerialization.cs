@@ -4,6 +4,7 @@
 
 namespace MeshCore.Net.SDK.Serialization
 {
+    using System.Security.Cryptography;
     using System.Text;
     using MeshCore.Net.SDK.Models;
 
@@ -96,34 +97,61 @@ namespace MeshCore.Net.SDK.Serialization
             return true;
         }
 
+        /// <summary>
+        /// Serializes a <see cref="Channel"/> into the binary wire format expected by
+        /// the MeshCore firmware's CMD_SET_CHANNEL (0x20) command.
+        /// </summary>
+        /// <remarks>
+        /// Wire format (49 bytes, command byte added by transport):
+        /// <code>
+        /// [index: 1 byte][name: 32 bytes UTF-8 zero-padded][secret: 16 bytes]
+        /// </code>
+        /// For hashtag channels (names starting with '#'), the secret is derived as
+        /// <c>SHA256(name)[0:16]</c>, matching the Python CLI behavior:
+        /// <c>channel_secret = sha256(channel_name.encode("utf-8")).digest()[0:16]</c>
+        /// </remarks>
         public byte[] Serialize(Channel obj)
         {
-            var parts = new List<string>();
+            // Wire format: [index(1)][name(32)][secret(16)] = 49 bytes
+            var payload = new byte[49];
 
-            // Channel ID should be first - if not provided, generate one for new channels
-            var channelId = obj.Index.ToString();
-            parts.Add(channelId);
+            // Byte 0: Channel index
+            payload[0] = (byte)obj.Index;
 
-            // Then add other properties
-            parts.Add(obj.Name ?? "All");
-            parts.Add(obj.Frequency.ToString());
-            parts.Add(obj.IsEncrypted ? "1" : "0");
+            // Bytes 1-32: Channel name (UTF-8 encoded, zero-padded to 32 bytes)
+            var nameBytes = Encoding.UTF8.GetBytes(obj.Name ?? "All");
+            var copyLen = Math.Min(nameBytes.Length, 32);
+            Array.Copy(nameBytes, 0, payload, 1, copyLen);
+            // Remaining bytes are already zero from array initialization
 
-            if (obj.IsEncrypted && !string.IsNullOrWhiteSpace(obj.EncryptionKey))
+            // Bytes 33-48: Channel secret (16 bytes)
+            byte[] secret;
+
+            if (!string.IsNullOrWhiteSpace(obj.EncryptionKey))
             {
-                parts.Add(obj.EncryptionKey);
+                // Explicit key provided — decode from hex
+                secret = Convert.FromHexString(obj.EncryptionKey);
+                if (secret.Length != 16)
+                {
+                    throw new ArgumentException(
+                        $"EncryptionKey must be exactly 16 bytes (32 hex chars), got {secret.Length} bytes.");
+                }
             }
-            else if (obj.IsEncrypted)
+            else if (obj.Name != null && obj.Name.StartsWith('#'))
             {
-                // Generate a random key if encryption is enabled but no key provided
-                var random = new Random();
-                var key = new byte[32]; // 32 bytes for AES-256
-                random.NextBytes(key);
-                parts.Add(Convert.ToHexString(key));
+                // Hashtag channel: derive key from SHA-256 of channel name (first 16 bytes)
+                // This matches the Python CLI: sha256(channel_name.encode("utf-8")).digest()[0:16]
+                secret = SHA256.HashData(Encoding.UTF8.GetBytes(obj.Name))[..16];
+            }
+            else
+            {
+                // No key and not a hashtag channel — send all zeros (unencrypted)
+                secret = new byte[16];
             }
 
-            var configString = string.Join("\0", parts);
-            return Encoding.UTF8.GetBytes(configString);
+            Array.Copy(secret, 0, payload, 33, 16);
+
+            return payload;
         }
     }
 }

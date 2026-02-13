@@ -67,28 +67,14 @@ public class LiveRadioMessagingTests : LiveRadioTestBase
     {
         string message = "T";
 
-        await ExecuteIsolationTestAsync("Hashtag Channel Messaging Debug", async (client) =>
+        await ExecuteIsolationTestAsync("Hashtag Channel Messaging", async (client) =>
         {
-            _output.WriteLine("GOAL: Debug SDK implementation of CMD_SEND_CHANNEL_TXT_MSG");
-            _output.WriteLine("");
-
             // Debug: Discover what channels are actually configured on the device
             _output.WriteLine($"🔍 DYNAMIC CHANNEL DISCOVERY:");
 
             try
             {
-                _output.WriteLine($"   Querying device for all configured channels...");
-                var availableChannels = await client.GetChannelsAsync();
-
-                _output.WriteLine($"   Device has {availableChannels.Count()} configured channels:");
-                foreach (var channel in availableChannels.OrderBy(kvp => kvp.Index))
-                {
-                    _output.WriteLine($"     Index {channel.Index}: '{channel.Name}'");
-                }
-
-                // Check if 'bot' channel exists
-                var botChannelIndex = availableChannels.Any(channel =>
-                    channel.Name.Equals(BotChannelName, StringComparison.OrdinalIgnoreCase));
+                var channel = await client.EnsureHashTagChannelAsync(BotChannelName, CancellationToken.None);
             }
             catch (Exception ex)
             {

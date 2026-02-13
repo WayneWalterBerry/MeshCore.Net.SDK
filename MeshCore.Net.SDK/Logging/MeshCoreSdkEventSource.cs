@@ -349,7 +349,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="command">The command byte that was sent</param>
     /// <param name="deviceId">The identifier of the target device</param>
     [Event(201, Level = EventLevel.Verbose, Message = "Command sent successfully: {0} to device: {1}")]
-    public void CommandSent(byte command, string deviceId)
+    public void CommandSent(MeshCoreCommand command, string deviceId)
     {
         WriteEvent(201, command, deviceId ?? "Unknown");
     }
@@ -373,7 +373,7 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <param name="deviceId">The identifier of the target device</param>
     /// <param name="timeoutMs">The timeout duration in milliseconds</param>
     [Event(203, Level = EventLevel.Warning, Message = "Command timeout: {0} for device: {1} after {2}ms")]
-    public void CommandTimeout(byte command, string deviceId, int timeoutMs)
+    public void CommandTimeout(MeshCoreCommand command, string deviceId, int timeoutMs)
     {
         WriteEvent(203, command, deviceId ?? "Unknown", timeoutMs);
     }
@@ -393,13 +393,13 @@ public sealed class MeshCoreSdkEventSource : EventSource
     /// <summary>
     /// Logs when a frame is successfully parsed
     /// </summary>
-    /// <param name="startByte">The start byte of the parsed frame</param>
+    /// <param name="responseCode">The response code the parsed frame</param>
     /// <param name="length">The length of the parsed frame</param>
     /// <param name="payloadLength">The length of the payload in the parsed frame</param>
-    [Event(205, Level = EventLevel.Verbose, Message = "Frame parsed successfully: StartByte={0}, Length={1}, PayloadLength={2}")]
-    public void FrameParsed(byte startByte, ushort length, int payloadLength)
+    [Event(205, Level = EventLevel.Verbose, Message = "Frame parsed successfully: Response Code={0}, Length={1}, PayloadLength={2}")]
+    public void FrameParsed(MeshCoreResponseCode responseCode, ushort length, int payloadLength)
     {
-        WriteEvent(205, startByte, length, payloadLength);
+        WriteEvent(205, responseCode, length, payloadLength);
     }
 
     /// <summary>
