@@ -2,7 +2,7 @@
 // Copyright (c) Wayne Walter Berry. All rights reserved.
 // </copyright>
 
-namespace MeshCore.Net.SDK.Providers
+namespace MeshCore.Net.SDK
 {
     using System.Collections.Concurrent;
     using System.Threading;
@@ -10,27 +10,74 @@ namespace MeshCore.Net.SDK.Providers
     using MeshCore.Net.SDK.Interfaces;
     using MeshCore.Net.SDK.Models;
 
-    internal class Campaign : IChannelProvider, IDisposable
+    internal class MeshCoreCampaign : IChannelProvider, IDisposable
     {
+        /// <summary>
+        /// Default interval between queue synchronization cycles.
+        /// </summary>
+        private static readonly TimeSpan SyncInterval = TimeSpan.FromSeconds(10);
+
         private readonly MeshCoreClient meshCoreClient;
 
         /// <summary>
         /// Channel cache to store channel information received from the radio
         /// </summary>
         private readonly ConcurrentDictionary<uint, Channel> channelCache = new();
+        private readonly ConcurrentBag<Message> messageCache = new();
 
         private readonly SemaphoreSlim _channelsLoadGate = new(1, 1);
+        private readonly CancellationTokenSource _syncCts = new();
+        private readonly Task _syncLoopTask;
         private bool channelsLoaded;
 
-        public Campaign(MeshCoreClient client)
+        public MeshCoreCampaign(MeshCoreClient client)
         {
             this.meshCoreClient = client;
             this.meshCoreClient.Channel += MeshCoreClient_Channel;
+            this.meshCoreClient.MessageReceived += MeshCoreClient_MessageReceived;
+
+            _syncLoopTask = Task.Run(() => SyncLoopAsync(_syncCts.Token));
+        }
+
+        /// <summary>
+        /// Background loop that periodically synchronizes the message queue from the device.
+        /// </summary>
+        private async Task SyncLoopAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await meshCoreClient.SyncronizeQueueAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    // Swallow unexpected errors to keep the loop alive
+                }
+
+                try
+                {
+                    await Task.Delay(SyncInterval, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
         }
 
         private void MeshCoreClient_Channel(object? sender, Channel channel)
         {
             channelCache.AddOrUpdate(channel.Index, channel!, (key, oldValue) => channel!);
+        }
+
+        private void MeshCoreClient_MessageReceived(object? sender, Message message)
+        {
+            messageCache.Add(message);
         }
 
         /// <inheritdoc />
@@ -83,7 +130,7 @@ namespace MeshCore.Net.SDK.Providers
             return this.meshCoreClient.SetChannelAsync(channel, cancellation);
         }
 
-        public Task AddChannelAsync(string name, string encryptionKey, CancellationToken cancellationToken = default)
+        public Task AddChannelAsync(string name, ChannelSecret encryptionKey, CancellationToken cancellationToken = default)
         {
             // MeshCoreClient will automatically update the channel cache when it receives channel info
             // from the radio by calling the MeshCoreClient_Channel event handler.
@@ -92,8 +139,21 @@ namespace MeshCore.Net.SDK.Providers
 
         public void Dispose()
         {
+            _syncCts.Cancel();
+
+            try
+            {
+                _syncLoopTask.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown
+            }
+
             this.meshCoreClient.Channel -= MeshCoreClient_Channel;
+            this.meshCoreClient.MessageReceived -= MeshCoreClient_MessageReceived;
             this._channelsLoadGate.Dispose();
+            this._syncCts.Dispose();
         }
     }
 }

@@ -1069,6 +1069,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
             throw;
         }
     }
+
     /// <summary>
     /// Creates a default channel configuration for devices that don't support channel operations
     /// </summary>
@@ -1490,7 +1491,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
     /// before adding a new channel.</exception>
     public async Task AddChannelAsync(
         string name,
-        string encryptionKey,
+        ChannelSecret encryptionKey,
         CancellationToken cancellationToken = default)
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
@@ -1529,10 +1530,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                 $"Remove an existing channel before adding '{name}'.");
         }
 
-        ChannelParams channelParams = ChannelParams.Create(emptySlot.Value, name,
-            string.IsNullOrWhiteSpace(encryptionKey)
-                ? ChannelSecret.Empty
-                : ChannelSecret.FromHex(encryptionKey));
+        ChannelParams channelParams = ChannelParams.Create(emptySlot.Value, name, encryptionKey);
 
          _logger.LogDebug(
             "Adding channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId} with encryption key in {Duration}ms",

@@ -122,13 +122,7 @@ public class LiveRadioDeviceInfoTests : LiveRadioTestBase
     {
         await ExecuteIsolationTestAsync("Set Radio Params (PudgetMesh)", async (client) =>
         {
-            var pudgetMeshParams = new RadioParams
-            {
-                FrequencyMHz = 910.525,
-                BandwidthKHz = 62.5,
-                SpreadingFactor = 7,
-                CodingRate = 5
-            };
+            var pudgetMeshParams = RadioParamsFactory.PugetMesh();
 
             _output.WriteLine($"📡 Setting PudgetMesh radio parameters:");
             _output.WriteLine($"   Frequency: {pudgetMeshParams.FrequencyMHz} MHz");

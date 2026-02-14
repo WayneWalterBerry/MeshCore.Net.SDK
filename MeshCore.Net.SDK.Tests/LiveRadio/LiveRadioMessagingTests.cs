@@ -76,7 +76,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
 
                 try
                 {
-                    await client.AddChannelAsync(BotChannelName, "", CancellationToken.None);
+                    await client.AddChannelAsync(BotChannelName, ChannelSecret.Empty, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {

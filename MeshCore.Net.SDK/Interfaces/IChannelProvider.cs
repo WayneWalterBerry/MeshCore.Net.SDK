@@ -16,6 +16,12 @@ namespace MeshCore.Net.SDK.Interfaces
 
         public Task SetChannelAsync(ChannelParams channelParams, CancellationToken cancellation = default);
 
-        public Task AddChannelAsync(string name, string EncryptionKey, CancellationToken cancellationToken = default);
+        /// <summary>
+        /// Adds Channel with the specified name and encryption key to the radio's channel list.
+        /// </summary>
+        /// <param name="name">Channel Name</param>
+        /// <param name="encryptionKey">Encryption Key</param>
+        /// <param name="cancellationToken"></param>
+        public Task AddChannelAsync(string name, ChannelSecret encryptionKey, CancellationToken cancellationToken = default);
     }
 }

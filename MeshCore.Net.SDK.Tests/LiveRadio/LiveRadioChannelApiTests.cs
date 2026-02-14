@@ -180,14 +180,14 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         {
             var testChannelName = $"TeamAlpha_{TestRunId}";
             var testFrequency = 433000000; // 433 MHz - common LoRa frequency from research
-            var encryptionKey = GenerateChannelKey();
+            ChannelSecret encryptionKey = GenerateChannelKey();
 
             _output.WriteLine($"   Creating private channel: {testChannelName}");
             _output.WriteLine($"   Frequency: {testFrequency} Hz");
             _output.WriteLine($"   Key Length: {ChannelSecret.SecretLength} bytes");
             _output.WriteLine($"   Purpose: Closed mesh network isolation");
 
-            await client.AddChannelAsync(testChannelName, encryptionKey.Hex);
+            await client.AddChannelAsync(testChannelName, encryptionKey);
             Channel? channel = await client.TryGetChannelAsync(testChannelName);
             Assert.NotNull(channel);
 
@@ -278,7 +278,6 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         await ExecuteIsolationTestAsync("Channel PSK Validation (128-bit & 256-bit AES)", async (client) =>
         {
             var testChannelName = $"PSKTest_{TestRunId}";
-            var testFrequency = 433000000;
 
             // Research shows support for both 128-bit (16 bytes) and 256-bit (32 bytes) AES keys
             var keyTestCases = new (string testType, byte[] keyBytes, bool shouldSucceed, string description)[]
