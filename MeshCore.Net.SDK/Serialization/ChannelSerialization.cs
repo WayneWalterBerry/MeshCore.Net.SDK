@@ -4,11 +4,10 @@
 
 namespace MeshCore.Net.SDK.Serialization
 {
-    using System.Security.Cryptography;
     using System.Text;
     using MeshCore.Net.SDK.Models;
 
-    internal class ChannelSerialization : 
+    internal class ChannelSerialization :
         IBinaryDeserializer<Channel>,
         IBinarySerializer<Channel>
     {
@@ -28,7 +27,7 @@ namespace MeshCore.Net.SDK.Serialization
 
         public Channel? Deserialize(byte[] data)
         {
-            if (!this.TryDeserialize(data, out Channel? result)) 
+            if (!this.TryDeserialize(data, out Channel? result))
             {
                 throw new InvalidOperationException("Failed to deserialize channel from binary data");
             }
@@ -81,18 +80,14 @@ namespace MeshCore.Net.SDK.Serialization
 
                 // Check if the key is all zeros (unencrypted channel)
                 bool isAllZeros = keyBytes.All(b => b == 0);
-                result.IsEncrypted = !isAllZeros;
 
-                if (result.IsEncrypted)
+                if (!isAllZeros)
                 {
-                    result.EncryptionKey = Convert.ToHexString(keyBytes);
+                    result.EncryptionKey = ChannelSecret.FromBytes(keyBytes);
                 }
 
                 offset += 16;
             }
-
-            // Set default values
-            result.Frequency = 433000000; // Default frequency
 
             return true;
         }
@@ -127,25 +122,14 @@ namespace MeshCore.Net.SDK.Serialization
             // Bytes 33-48: Channel secret (16 bytes)
             byte[] secret;
 
-            if (!string.IsNullOrWhiteSpace(obj.EncryptionKey))
+            if (obj.EncryptionKey != null && !obj.EncryptionKey.IsEmpty)
             {
-                // Explicit key provided — decode from hex
-                secret = Convert.FromHexString(obj.EncryptionKey);
-                if (secret.Length != 16)
-                {
-                    throw new ArgumentException(
-                        $"EncryptionKey must be exactly 16 bytes (32 hex chars), got {secret.Length} bytes.");
-                }
-            }
-            else if (obj.Name != null && obj.Name.StartsWith('#'))
-            {
-                // Hashtag channel: derive key from SHA-256 of channel name (first 16 bytes)
-                // This matches the Python CLI: sha256(channel_name.encode("utf-8")).digest()[0:16]
-                secret = SHA256.HashData(Encoding.UTF8.GetBytes(obj.Name))[..16];
+                // Explicit key provided
+                secret = obj.EncryptionKey.ToByteArray();
             }
             else
             {
-                // No key and not a hashtag channel — send all zeros (unencrypted)
+                // No key — send all zeros (unencrypted)
                 secret = new byte[16];
             }
 

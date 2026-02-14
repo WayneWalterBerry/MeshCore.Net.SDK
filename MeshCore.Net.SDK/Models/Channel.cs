@@ -2,6 +2,9 @@
 // Copyright (c) Wayne Walter Berry. All rights reserved.
 // </copyright>
 
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace MeshCore.Net.SDK.Models
 {
     /// <summary>
@@ -13,35 +16,41 @@ namespace MeshCore.Net.SDK.Models
         /// <summary>
         /// Gets or sets the unique channel index
         /// </summary>
+        [JsonPropertyName("index")]
         public byte Index { get; set; }
 
         /// <summary>
         /// Gets or sets the channel name (up to 31 characters as per MeshCore spec)
         /// </summary>
+        [JsonPropertyName("name")]
         public string Name { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the LoRa frequency for this channel in Hz
+        /// Gets or sets the channel encryption secret (16-byte key).
+        /// Null when the channel has no encryption key (all-zero key from device).
         /// </summary>
-        public long Frequency { get; set; }
-
-        /// <summary>
-        /// Gets or sets whether the channel is encrypted
-        /// </summary>
-        public bool IsEncrypted { get; set; }
-
-        /// <summary>
-        /// Gets or sets the encryption key (32-byte AES key as hex string)
-        /// Only used when IsEncrypted is true
-        /// </summary>
-        public string? EncryptionKey { get; set; }
+        [JsonIgnore]
+        public ChannelSecret? EncryptionKey { get; set; }
 
         /// <summary>
         /// Gets or sets whether this is the default "All" channel
         /// </summary>
+        [JsonPropertyName("is_default_channel")]
         public bool IsDefaultChannel
         {
             get { return this.Index == 0x00; }
+        }
+
+        /// <summary>
+        /// Returns a JSON representation of the channel configuration.
+        /// </summary>
+        /// <returns>A JSON string describing the channel configuration.</returns>
+        public override string ToString()
+        {
+            return JsonSerializer.Serialize(this, new JsonSerializerOptions
+            {
+                WriteIndented = false
+            });
         }
     }
 }

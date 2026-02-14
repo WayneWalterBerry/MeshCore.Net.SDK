@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using MeshCore.Net.SDK.Exceptions;
+using MeshCore.Net.SDK.Interfaces;
 using MeshCore.Net.SDK.Logging;
 using MeshCore.Net.SDK.Models;
 using MeshCore.Net.SDK.Protocol;
@@ -22,7 +23,7 @@ namespace MeshCore.Net.SDK;
 /// <summary>
 /// Main client for interacting with MeshCore devices via USB or Bluetooth
 /// </summary>
-public class MeshCoreClient : IDisposable
+public class MeshCoreClient : IDisposable, IChannelProvider
 {
     /// <summary>
     /// Maximum number of channels supported by the MeshCore device
@@ -38,6 +39,11 @@ public class MeshCoreClient : IDisposable
     /// Event fired when a message is received from the MeshCore device
     /// </summary>
     public event EventHandler<Message>? MessageReceived;
+
+    /// <summary>
+    /// Channel event fired when a channel is added or updated on the MeshCore device
+    /// </summary>
+    public event EventHandler<Channel>? Channel;
 
     /// <summary>
     /// Event fired when a contact's status changes
@@ -357,7 +363,6 @@ public class MeshCoreClient : IDisposable
         {
             contacts.TryAdd(contact.PublicKey, contact);
         }
-        ;
 
         ContactStatusChanged += OnContactReceived;
 
@@ -1074,32 +1079,30 @@ public class MeshCoreClient : IDisposable
         {
             Index = 0,
             Name = "All",
-            Frequency = 433175000, // Default LoRa frequency for MeshCore
-            IsEncrypted = false
         };
     }
 
     /// <summary>
     /// Sets the channel configuration
     /// </summary>
-    /// <param name="channelConfig">The channel configuration to set</param>
-    /// <returns>The updated channel configuration</returns>
-    public async Task<Channel> SetChannelAsync(Channel channelConfig)
+    /// <param name="channelParams">The channel configuration to set</param>
+    /// <param name="cancellationToken">Cancellation Token</param>
+    public async Task SetChannelAsync(ChannelParams channelParams, CancellationToken cancellationToken = default)
     {
-        if (channelConfig == null)
-            throw new ArgumentNullException(nameof(channelConfig));
+        if (channelParams == null)
+        {
+            throw new ArgumentNullException(nameof(channelParams));
+        }
 
-        if (string.IsNullOrWhiteSpace(channelConfig.Name))
-            throw new ArgumentException("Channel name cannot be null or empty", nameof(channelConfig));
+        if (string.IsNullOrWhiteSpace(channelParams.Name))
+        {
+            throw new ArgumentException("Channel name cannot be null or empty", nameof(channelParams));
+        }
 
-        if (channelConfig.Name.Length > 31)
-            throw new ArgumentException("Channel name cannot exceed 31 characters", nameof(channelConfig));
-
-        // Frequency validation: hashtag channels (starting with '#') derive their
-        // configuration from the name via firmware, so Frequency = 0 is valid.
-        // For non-hashtag channels, a positive frequency is required.
-        if (channelConfig.Frequency <= 0 && !channelConfig.Name.StartsWith('#'))
-            throw new ArgumentException("Channel frequency must be greater than 0", nameof(channelConfig));
+        if (channelParams.Name.Length > 31)
+        {
+            throw new ArgumentException("Channel name cannot exceed 31 characters", nameof(channelParams));
+        }
 
         var deviceId = _transport.ConnectionId ?? "Unknown";
         var operationName = nameof(SetChannelAsync);
@@ -1109,28 +1112,15 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            var data = SerializeChannel(channelConfig);
+            var data = ChannelParamsSerialization.Instance.Serialize(channelParams);
 
-            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_CHANNEL, data);
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SET_CHANNEL, data, cancellationToken);
 
             if (response.GetResponseCode() == MeshCoreResponseCode.RESP_CODE_OK)
             {
-                // Success - update the channel configuration with actual values
-                var updatedConfig = new Channel
-                {
-                    Index = channelConfig.Index,
-                    Name = channelConfig.Name,
-                    Frequency = channelConfig.Frequency,
-                    IsEncrypted = channelConfig.IsEncrypted,
-                    EncryptionKey = channelConfig.EncryptionKey
-                };
-
                 var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                _logger.LogDebug("Channel configuration set successfully: {ChannelName} (ID: {ChannelIndex}) on device {DeviceId}",
-                    channelConfig.Name, updatedConfig.Index, deviceId);
-                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
 
-                return updatedConfig;
+                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
             }
             else if (response.GetResponseCode() == MeshCoreResponseCode.RESP_CODE_ERR)
             {
@@ -1140,7 +1130,7 @@ public class MeshCoreClient : IDisposable
                 var errorMessage = status switch
                 {
                     MeshCoreStatus.InvalidCommand =>
-                        $"CMD_SET_CHANNEL returned InvalidCommand for channel '{channelConfig.Name}' (index {channelConfig.Index}). " +
+                        $"CMD_SET_CHANNEL returned InvalidCommand for channel '{channelParams.Name}' (index {channelParams.Index}). " +
                         $"This indicates a calling pattern issue. Sent payload: {Convert.ToHexString(data)}. " +
                         $"Expected binary format: [index(1)][name(32)][secret(16)] = 49 bytes. " +
                         $"Review protocol specification and reference implementations.",
@@ -1149,29 +1139,22 @@ public class MeshCoreClient : IDisposable
 
                 var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, errorMessage);
 
-                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte);
                 MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, ex.Message);
 
                 throw ex;
             }
             else
             {
-                // Unexpected response code - treat as successful but log warning
-                _logger.LogWarning("Unexpected response code {ResponseCode} for CMD_SET_CHANNEL on device {DeviceId}, treating as success", response.GetResponseCode(), deviceId);
+                var statusByte = (byte)0x01;
+                var errorMessage = $"Unexpected response code {response.GetResponseCode()} for CMD_SET_CHANNEL on device {deviceId}. " +
+                    $"Expected RESP_CODE_OK ({(byte)MeshCoreResponseCode.RESP_CODE_OK:X2}).";
 
-                var updatedConfig = new Channel
-                {
-                    Index = channelConfig.Index, // Use the actual ID (generated or provided)
-                    Name = channelConfig.Name,
-                    Frequency = channelConfig.Frequency,
-                    IsEncrypted = channelConfig.IsEncrypted,
-                    EncryptionKey = channelConfig.EncryptionKey
-                };
+                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, errorMessage);
 
-                var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
+                _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte);
+                MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SET_CHANNEL, statusByte, ex.Message);
 
-                return updatedConfig;
+                throw ex;
             }
         }
         catch (Exception ex) when (!(ex is ProtocolException))
@@ -1206,9 +1189,9 @@ public class MeshCoreClient : IDisposable
 
         try
         {
-            // Map channel names to numeric IDs by querying the device
-            var channelConfig = await TryGetChannelAsync(channelName);
-            if (channelConfig == null)
+            // Try cache first, then query device if not found
+            Channel? channel = await TryGetChannelAsync(channelName);
+            if (channel == null)
             {
                 _logger.LogError("Channel '{ChannelName}' not found on device {DeviceId}. Cannot send message.", channelName, deviceId);
                 throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, 0x02,
@@ -1216,7 +1199,7 @@ public class MeshCoreClient : IDisposable
             }
 
             _logger.LogDebug("Mapped channel '{ChannelName}' to index {channelConfig.Id} for device {DeviceId}",
-                channelName, channelConfig.Index.ToString(), deviceId);
+                channelName, channel.Index.ToString(), deviceId);
 
             // Build the correct CMD_SEND_CHANNEL_TXT_MSG payload format:
             // CMD(0x03) + TXT_TYPE(0x00) + CHANNEL_IDX + TIMESTAMP(4 bytes) + MESSAGE + NULL
@@ -1227,7 +1210,7 @@ public class MeshCoreClient : IDisposable
             {
                 // CMD is added automatically by transport layer
                 0x00, // txt_type - 0x00 for plain text
-                (byte)channelConfig.Index, // channel_idx - numeric channel ID
+                (byte)channel.Index, // channel_idx - numeric channel ID
             };
 
             // Add timestamp (4 bytes, little-endian as per MeshCore protocol)
@@ -1247,7 +1230,7 @@ public class MeshCoreClient : IDisposable
             var payloadArray = payload.ToArray();
 
             _logger.LogDebug("Sending CMD_SEND_CHANNEL_TXT_MSG with payload: TXT_TYPE=0x00, CHANNEL_IDX=0x{ChannelIndex:X2}, TIMESTAMP={Timestamp}, MESSAGE_LEN={MessageLen}",
-                channelConfig.Index, timestamp, messageBytes.Length);
+                channel.Index, timestamp, messageBytes.Length);
 
             var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, payloadArray);
 
@@ -1257,7 +1240,7 @@ public class MeshCoreClient : IDisposable
             if (responseCode == MeshCoreResponseCode.RESP_CODE_SENT)
             {
                 _logger.LogInformation("Channel message sent successfully to {ChannelName} (index {ChannelIndex}) from device {DeviceId}",
-                    channelName, channelConfig.Index, deviceId);
+                    channelName, channel.Index, deviceId);
 
                 // Agent mode: Log message sent without a separate messageId parameter
                 MeshCoreSdkEventSource.Log.MessageSent(channelName);
@@ -1278,10 +1261,10 @@ public class MeshCoreClient : IDisposable
                 else if (statusByte == 0x02) // ERR_CODE_NOT_FOUND from research
                 {
                     _logger.LogError("Channel {ChannelName} (index {ChannelIndex}) not found on device {DeviceId}. Channel may need to be configured first.",
-                        channelName, channelConfig.Index, deviceId);
+                        channelName, channel.Index, deviceId);
 
                     throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
-                        $"Channel '{channelName}' (index {channelConfig.Index}) not found. Use CMD_SET_CHANNEL to configure the channel first.");
+                        $"Channel '{channelName}' (index {channel.Index}) not found. Use CMD_SET_CHANNEL to configure the channel first.");
                 }
                 else
                 {
@@ -1336,7 +1319,7 @@ public class MeshCoreClient : IDisposable
     /// This helps us understand what channels are configured at each numeric index
     /// </summary>
     /// <returns>Dictionary mapping channel indices to channel names</returns>
-    public async Task<IEnumerable<Channel>> GetChannelsAsync()
+    public async Task<IEnumerable<Channel>> GetChannelsAsync(CancellationToken cancellation = default)
     {
         var result = new List<Channel>();
         var deviceId = _transport.ConnectionId ?? "Unknown";
@@ -1347,7 +1330,7 @@ public class MeshCoreClient : IDisposable
         // Query channel indices 0-9 to see what's configured (limiting to first 10 for efficiency)
         for (uint channelIndex = 0; channelIndex <= MeshCoreClient.MaxChannelsSupported; channelIndex++)
         {
-            var channel = await TryGetChannelAsync(channelIndex);
+            var channel = await TryGetChannelAsync(channelIndex, cancellation);
             if (channel != null)
             {
                 result.Add(channel);
@@ -1369,11 +1352,12 @@ public class MeshCoreClient : IDisposable
     /// channel at index 0; failure to do so results in a <see cref="ProtocolException"/>.</remarks>
     /// <param name="channelIndex">The zero-based index of the channel to query. Index 0 refers to the public channel, which must be present on all
     /// MeshCore devices.</param>
+    /// <param name="cancellationToken">Cancellation Token</param>
     /// <returns>A task that represents the asynchronous operation. The task result contains the channel information if found;
     /// otherwise, <see langword="null"/> if no channel is configured at the specified index.</returns>
     /// <exception cref="ProtocolException">Thrown if the device does not support channel commands or fails to provide the required public channel at index
     /// 0, indicating a device compatibility issue.</exception>
-    public async Task<Channel?> TryGetChannelAsync(uint channelIndex)
+    public async Task<Channel?> TryGetChannelAsync(uint channelIndex, CancellationToken cancellationToken = default)
     {
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
@@ -1382,7 +1366,7 @@ public class MeshCoreClient : IDisposable
             _logger.LogDebug("Querying channel index {ChannelIndex} on device {DeviceId}", channelIndex, deviceId);
 
             var channelIndexData = new byte[] { (byte)channelIndex };
-            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_CHANNEL, channelIndexData);
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_GET_CHANNEL, channelIndexData, cancellationToken);
 
             var responseCode = response.GetResponseCode();
 
@@ -1399,6 +1383,8 @@ public class MeshCoreClient : IDisposable
                     {
                         _logger.LogInformation("Found channel at index {ChannelIndex}: '{ChannelName}' on device {DeviceId}",
                             channelIndex, channel.Name, deviceId);
+
+                        Channel?.Invoke(this, channel);
 
                         return channel;
                     }
@@ -1474,7 +1460,7 @@ public class MeshCoreClient : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var channel = await TryGetChannelAsync(i);
+            var channel = await TryGetChannelAsync(i, cancellationToken);
             if (channel != null && string.Equals(channel.Name, channelName, StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogDebug("Found channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId}",
@@ -1488,156 +1474,75 @@ public class MeshCoreClient : IDisposable
     }
 
     /// <summary>
-    /// Ensures that a hashtag channel exists on the connected device. If a channel with the
-    /// specified name already exists, it is returned unchanged. Otherwise, the channel is
-    /// created in the first available slot.
+    /// Adds a new channel with the specified name and encryption key to the device.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Hashtag channels (names beginning with <c>#</c>) use encryption keys that are
-    /// automatically derived from the channel name by the firmware. All devices that
-    /// create the same <c>#name</c> will compute the same key, allowing them to
-    /// communicate without out-of-band key exchange.
-    /// </para>
-    /// <para>
-    /// This corresponds to the Python CLI's <c>add_channel #name</c> command, which
-    /// finds the first empty channel slot and calls
-    /// <c>mc.commands.set_channel(idx, name, key=None)</c>, letting the firmware
-    /// derive the secret from the channel name via SHA-256.
-    /// </para>
-    /// <para>
-    /// Index 0 (the default public channel) is never overwritten. The search for an
-    /// empty slot begins at index 1.
-    /// </para>
+    /// If a channel with the specified name already exists, the method completes without adding a
+    /// new channel. The maximum number of channels is limited by the device; attempting to add more channels than
+    /// supported will result in an exception.
     /// </remarks>
-    /// <param name="channelName">
-    /// The hashtag channel name (e.g., <c>"#MyChannel"</c> or <c>"MyChannel"</c>).
-    /// If the leading <c>#</c> is omitted it is prepended automatically.
-    /// </param>
-    /// <param name="cancellationToken">
-    /// A cancellation token that can be used to cancel the operation.
-    /// </param>
-    /// <returns>
-    /// A task whose result is the <see cref="Channel"/> that was found or created on the device.
-    /// When the channel already exists, the existing configuration is returned without modification.
-    /// </returns>
-    /// <exception cref="ArgumentException">
-    /// Thrown when <paramref name="channelName"/> is <c>null</c>, empty, consists only of
-    /// whitespace, or exceeds the 31-character firmware limit.
-    /// </exception>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when no empty channel slot is available on the device (all 40 slots are in use).
-    /// </exception>
-    /// <exception cref="ProtocolException">
-    /// Thrown when the device returns an error while querying or setting the channel.
-    /// </exception>
-    public async Task<Channel> EnsureHashTagChannelAsync(
-        string channelName,
+    /// <param name="name">The name of the channel to add. Channel names are compared case-insensitively. Must not match an existing
+    /// channel name.</param>
+    /// <param name="encryptionKey">The encryption key to associate with the new channel.</param>
+    /// <param name="cancellationToken">A cancellation token that can be used to cancel the operation.</param>
+    /// <returns>A task that represents the asynchronous add operation.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if no empty channel slots are available on the device. All channel slots must have available capacity
+    /// before adding a new channel.</exception>
+    public async Task AddChannelAsync(
+        string name,
+        string encryptionKey,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(channelName))
-        {
-            throw new ArgumentException("Channel name cannot be null or empty.", nameof(channelName));
-        }
-
-        // Normalize: ensure name starts with '#'
-        if (!channelName.StartsWith('#'))
-        {
-            channelName = "#" + channelName;
-        }
-
-        if (channelName.Length > 31)
-        {
-            throw new ArgumentException(
-                $"Channel name cannot exceed 31 characters (got {channelName.Length}).",
-                nameof(channelName));
-        }
-
         var deviceId = _transport.ConnectionId ?? "Unknown";
-        const string operationName = nameof(EnsureHashTagChannelAsync);
+        const string operationName = nameof(AddChannelAsync);
         var startTime = DateTimeOffset.UtcNow;
 
-        _logger.LogDebug(
-            "Starting operation: {OperationName} for device: {DeviceId}, channelName='{ChannelName}'",
-            operationName, deviceId, channelName);
-        MeshCoreSdkEventSource.Log.OperationStarted(operationName, deviceId);
+        uint? emptySlot = null;
 
-        try
+        for (uint i = 1; i <= MaxChannelsSupported; i++)
         {
-            int? emptySlot = null;
+            cancellationToken.ThrowIfCancellationRequested();
 
-            for (uint i = 1; i <= MaxChannelsSupported; i++)
+            var channel = await TryGetChannelAsync(i, cancellationToken);
+            if (channel == null && emptySlot == null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var channel = await TryGetChannelAsync(i);
-                if (channel == null && emptySlot == null)
-                {
-                    emptySlot = (int)i;
-                }
-
-                if (channel != null && string.Equals(channel.Name, channelName, StringComparison.OrdinalIgnoreCase))
-                {
-                    var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-                    _logger.LogDebug(
-                        "Channel '{ChannelName}' already exists at index {ChannelIndex} on device {DeviceId} in {Duration}ms",
-                        channelName, channel.Index, deviceId, (long)duration);
-                    MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
-                    return channel;
-                }
+                emptySlot = i;
             }
 
-            if (emptySlot == null)
+            if (channel != null && string.Equals(channel.Name, name, StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException(
-                    $"No empty channel slots available on device {deviceId}. " +
-                    $"All {MaxChannelsSupported} slots are in use. " +
-                    $"Remove an existing channel before adding '{channelName}'.");
+                var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+
+                _logger.LogDebug(
+                    "Channel '{ChannelName}' already exists at index {ChannelIndex} on device {DeviceId} in {Duration}ms",
+                    name, channel.Index, deviceId, (long)duration);
+
+                MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
             }
-
-            _logger.LogDebug(
-                "Adding hashtag channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId}",
-                channelName, emptySlot.Value, deviceId);
-
-            // 3. Create the channel.
-            //    For hashtag (#) channels, the encryption key is derived from
-            //    SHA-256(name)[0:16] by the serializer. This matches the Python CLI
-            //    behavior: sha256(channel_name.encode("utf-8")).digest()[0:16]
-            var newChannel = new Channel
-            {
-                Index = (byte)emptySlot.Value,
-                Name = channelName,
-                Frequency = 0,
-                IsEncrypted = true, // Hashtag channels always have a derived key
-                EncryptionKey = null // Serializer computes SHA-256 key for # channels
-            };
-
-            var setResult = await SetChannelAsync(newChannel);
-
-            // 4. Re-read the channel from the device to get the firmware-generated key
-            //    (matches Python CLI pattern which does get_channel after set_channel)
-            var confirmedChannel = await TryGetChannelAsync((uint)emptySlot.Value);
-
-            var finalChannel = confirmedChannel ?? setResult;
-
-            var finalDuration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
-
-            _logger.LogInformation(
-                "Hashtag channel '{ChannelName}' created at index {ChannelIndex} on device {DeviceId} in {Duration}ms. " +
-                "Encrypted={IsEncrypted}, Key={Key}",
-                channelName, emptySlot.Value, deviceId, (long)finalDuration,
-                finalChannel.IsEncrypted,
-                finalChannel.EncryptionKey ?? "(firmware-derived)");
-
-            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)finalDuration);
-
-            return finalChannel;
         }
-        catch (Exception ex) when (ex is not ProtocolException and not InvalidOperationException and not ArgumentException)
+
+        if (emptySlot == null)
         {
-            _logger.LogUnexpectedError(ex, operationName);
-            MeshCoreSdkEventSource.Log.UnexpectedError(ex.Message, operationName);
-            throw;
+            throw new InvalidOperationException(
+                $"No empty channel slots available on device {deviceId}. " +
+                $"All {MaxChannelsSupported} slots are in use. " +
+                $"Remove an existing channel before adding '{name}'.");
+        }
+
+        ChannelParams channelParams = ChannelParams.Create(emptySlot.Value, name,
+            string.IsNullOrWhiteSpace(encryptionKey)
+                ? ChannelSecret.Empty
+                : ChannelSecret.FromHex(encryptionKey));
+
+         _logger.LogDebug(
+            "Adding channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId} with encryption key in {Duration}ms",
+            name, emptySlot.Value, deviceId, (long)(DateTimeOffset.UtcNow - startTime).TotalMilliseconds);
+
+        await SetChannelAsync(channelParams, cancellationToken);
+
+        {
+            var duration = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds;
+            MeshCoreSdkEventSource.Log.OperationCompleted(operationName, deviceId, (long)duration);
         }
     }
 
@@ -3550,16 +3455,6 @@ public class MeshCoreClient : IDisposable
     private static bool TryDeserializeChannel(byte[] data, out Channel? channel)
     {
         return ChannelSerialization.Instance.TryDeserialize(data, out channel);
-    }
-
-    /// <summary>
-    /// Serializes channel configuration for sending to device
-    /// </summary>
-    /// <param name="config">The channel configuration to serialize</param>
-    /// <returns>Serialized byte array</returns>
-    private static byte[] SerializeChannel(Channel config)
-    {
-        return ChannelSerialization.Instance.Serialize(config);
     }
 
     #endregion

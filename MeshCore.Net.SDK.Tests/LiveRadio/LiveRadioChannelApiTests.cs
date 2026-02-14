@@ -28,7 +28,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     private const string DefaultChannelName = "Public"; // Research shows "Public" or "All" channel
     private const string DefaultPublicChannelKey = "izOH6cXN6mrJ5e26oRXNcg=="; // From research: default public key
     private const int MaxChannelNameLength = 31; // Research: 32 bytes including null terminator
-    private const int ExpectedChannelKeyLength = 32; // AES-256 key length (research shows 32 bytes)
+    private const int ExpectedChannelKeyLength = 16; // 16-byte channel secret (wire format: [index(1)][name(32)][secret(16)])
     private const int ChannelRecordSize = 68; // Research: each ChannelDetails record is 68 bytes
 
     // Test execution timestamp for unique channel names (since deletion not supported)
@@ -85,8 +85,6 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _output.WriteLine($"✅ Current channel retrieved:");
             _output.WriteLine($"   Channel Name: {channelInfo.Name ?? "Not specified"}");
             _output.WriteLine($"   Channel Index: {channelInfo.Index}");
-            _output.WriteLine($"   Frequency: {channelInfo.Frequency} Hz");
-            _output.WriteLine($"   Encrypted: {(channelInfo.IsEncrypted ? "Yes" : "No")}");
 
             // Research validation: Public channel should be default
             if (channelInfo.Name?.Equals("Public", StringComparison.OrdinalIgnoreCase) == true ||
@@ -101,12 +99,12 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 }
             }
 
-            if (channelInfo.IsEncrypted && !string.IsNullOrEmpty(channelInfo.EncryptionKey))
+            if (channelInfo.EncryptionKey != null)
             {
-                _output.WriteLine($"   Key Length: {channelInfo.EncryptionKey.Length} chars (Base64)");
+                _output.WriteLine($"   Key: {channelInfo.EncryptionKey.Hex}");
 
                 // Validate against known public key from research
-                if (channelInfo.EncryptionKey.Equals(DefaultPublicChannelKey))
+                if (channelInfo.EncryptionKey == ChannelSecret.DefaultPublicKey)
                 {
                     _output.WriteLine("✅ Default public channel key matches research documentation");
                 }
@@ -182,37 +180,28 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         {
             var testChannelName = $"TeamAlpha_{TestRunId}";
             var testFrequency = 433000000; // 433 MHz - common LoRa frequency from research
-            var encryptionKey = GenerateChannelKey(); // 32-byte AES-256 key per research
+            var encryptionKey = GenerateChannelKey();
 
             _output.WriteLine($"   Creating private channel: {testChannelName}");
             _output.WriteLine($"   Frequency: {testFrequency} Hz");
-            _output.WriteLine($"   Key Length: {encryptionKey.Length} bytes (AES-256)");
+            _output.WriteLine($"   Key Length: {ChannelSecret.SecretLength} bytes");
             _output.WriteLine($"   Purpose: Closed mesh network isolation");
 
-            var channelConfig = new Channel
-            {
-                Name = testChannelName,
-                Frequency = testFrequency,
-                IsEncrypted = true,
-                EncryptionKey = Convert.ToHexString(encryptionKey)
-            };
+            await client.AddChannelAsync(testChannelName, encryptionKey.Hex);
+            Channel? channel = await client.TryGetChannelAsync(testChannelName);
+            Assert.NotNull(channel);
 
-            var result = await client.SetChannelAsync(channelConfig);
-            _createdTestChannels.Add(result.Index.ToString());
+            _createdTestChannels.Add(channel.Index.ToString());
 
-            Assert.NotNull(result);
-            Assert.Equal(testChannelName, result.Name);
-            Assert.Equal(testFrequency, result.Frequency);
-            Assert.True(result.IsEncrypted);
-            Assert.NotNull(result.EncryptionKey);
-            Assert.False(result.IsDefaultChannel); // Should not be default channel
+            Assert.Equal(testChannelName, channel.Name);
+            Assert.NotNull(channel.EncryptionKey);
 
             _output.WriteLine($"✅ Private channel configured successfully");
-            _output.WriteLine($"   Channel ID: {result.Index}");
+            _output.WriteLine($"   Channel ID: {channel.Index}");
             _output.WriteLine($"   Encryption Status: Enabled (mesh isolation active)");
             _output.WriteLine($"   📝 Research Note: This creates an isolated sub-network");
 
-            _output.WriteLine($"⚠️  TEST 04 created channel {result.Index} - channel deletion not supported in MeshCore protocol");
+            _output.WriteLine($"⚠️  TEST 04 created channel {channel.Index} - channel deletion not supported in MeshCore protocol");
         });
     }
 
@@ -246,18 +235,15 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
 
                 try
                 {
-                    var channelConfig = new Channel
-                    {
-                        Name = channelName,
-                        Frequency = 433000000,
-                        IsEncrypted = false
-                    };
+                    var channelParams = ChannelParams.Create(0, channelName, GenerateChannelKey());
 
-                    var result = await client.SetChannelAsync(channelConfig);
+                    await client.SetChannelAsync(channelParams);
+                    Channel? channel = await client.TryGetChannelAsync(channelName);
+                    Assert.NotNull(channel);
 
                     if (shouldSucceed)
                     {
-                        _createdTestChannels.Add(result.Index.ToString());
+                        _createdTestChannels.Add(channel.Index.ToString());
                         _output.WriteLine($"   ✅ {testType} accepted (within storage constraints)");
                     }
                     else
@@ -297,8 +283,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             // Research shows support for both 128-bit (16 bytes) and 256-bit (32 bytes) AES keys
             var keyTestCases = new (string testType, byte[] keyBytes, bool shouldSucceed, string description)[]
             {
-                ("AES_256_Valid", GenerateChannelKey(), true, "32-byte AES-256 key (research standard)"),
-                ("AES_128_Valid", new byte[16], true, "16-byte AES-128 key (research supported)"),
+                ("AES_128_Valid", GenerateChannelKey().ToByteArray(), true, "16-byte AES-128 key (protocol standard)"),
                 ("Public_Default", Convert.FromHexString("8b3387e9c5cdea6ac9e5edbaa115cd72"), true, "Default public channel key from research"),
                 ("Short_Key", new byte[8], false, "Too short (8 bytes)"),
                 ("Long_Key", new byte[64], false, "Too long (64 bytes)"),
@@ -320,19 +305,15 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                         new Random().NextBytes(keyBytes);
                     }
 
-                    var channelConfig = new Channel
-                    {
-                        Name = $"{testChannelName}_{testType}",
-                        Frequency = testFrequency,
-                        IsEncrypted = true,
-                        EncryptionKey = keyBytes.Length > 0 ? Convert.ToHexString(keyBytes) : ""
-                    };
+                    var channelParamsName = $"{testChannelName}_{testType}";
+                    var channelSecret = ChannelSecret.FromBytes(keyBytes);
+                    var channel = ChannelParams.Create(0, channelParamsName, channelSecret);
 
-                    var result = await client.SetChannelAsync(channelConfig);
+                    await client.SetChannelAsync(channel);
 
                     if (shouldSucceed)
                     {
-                        _createdTestChannels.Add(result.Index.ToString());
+                        _createdTestChannels.Add(channel.Index.ToString());
                         _output.WriteLine($"   ✅ {testType} accepted");
                     }
                     else
@@ -459,15 +440,12 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _output.WriteLine($"   Creating isolated channels: {channel1Name} and {channel2Name}");
 
             // Create first private channel
-            var channel1Config = new Channel
-            {
-                Name = channel1Name,
-                Frequency = 433000000,
-                IsEncrypted = true,
-                EncryptionKey = Convert.ToHexString(key1)
-            };
+            var channelParams1 = ChannelParams.Create(0, channel1Name, key1);
 
-            var channel1 = await client.SetChannelAsync(channel1Config);
+            await client.SetChannelAsync(channelParams1);
+            Channel? channel1 = await client.TryGetChannelAsync(channel1Name);
+            Assert.NotNull(channel1);
+
             _createdTestChannels.Add(channel1.Index.ToString());
 
             // Send test message to first channel
@@ -475,15 +453,12 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _output.WriteLine($"   ✅ Channel 1: {channel1Name} (isolated sub-network created)");
 
             // Create second private channel
-            var channel2Config = new Channel
-            {
-                Name = channel2Name,
-                Frequency = 433000000,
-                IsEncrypted = true,
-                EncryptionKey = Convert.ToHexString(key2)
-            };
+            var channelParams2 = ChannelParams.Create(0, channel2Name, key2);
 
-            var channel2 = await client.SetChannelAsync(channel2Config);
+            await client.SetChannelAsync(channelParams2);
+            Channel? channel2 = await client.TryGetChannelAsync(channel2Name);
+            Assert.NotNull(channel2);
+
             _createdTestChannels.Add(channel2.Index.ToString());
 
             // Send test message to second channel
@@ -517,15 +492,14 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             {
                 _output.WriteLine($"   Current channel: {currentChannel.Name}");
                 _output.WriteLine($"   Is default: {currentChannel.IsDefaultChannel}");
-                _output.WriteLine($"   Is encrypted: {currentChannel.IsEncrypted}");
 
-                if (currentChannel.IsDefaultChannel && currentChannel.IsEncrypted)
+                if (currentChannel.IsDefaultChannel && currentChannel.EncryptionKey == null)
                 {
                     _output.WriteLine($"   ✅ Default channel properly configured with encryption");
                     _output.WriteLine($"   📝 Research Note: Public key known to all MeshCore devices");
                     _output.WriteLine($"   📝 Use Case: Good for discovery, not for sensitive data");
                 }
-                else if (currentChannel.IsDefaultChannel && !currentChannel.IsEncrypted)
+                else if (currentChannel.IsDefaultChannel && currentChannel.EncryptionKey != null)
                 {
                     _output.WriteLine($"   ⚠️  Default channel is not encrypted (unusual configuration)");
                 }
@@ -564,18 +538,15 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             for (int i = 1; i <= 3; i++)
             {
                 var channelName = $"Multi_{i}_{DateTime.Now:HHmmss}";
-                var channelConfig = new Channel
-                {
-                    Name = channelName,
-                    Frequency = 433000000,
-                    IsEncrypted = true,
-                    EncryptionKey = Convert.ToHexString(GenerateChannelKey())
-                };
+                var channelParams = ChannelParams.Create(0, channelName, GenerateChannelKey());
 
-                testChannels.Add((channelName, channelConfig));
 
-                var result = await client.SetChannelAsync(channelConfig);
-                _createdTestChannels.Add(result.Index.ToString());
+                await client.SetChannelAsync(channelParams);
+                Channel? channel = await client.TryGetChannelAsync(channelName);
+                Assert.NotNull(channel);
+
+                testChannels.Add((channelName, channel));
+                _createdTestChannels.Add(channel.Index.ToString());
 
                 _output.WriteLine($"   ✅ Created channel {i}: {channelName}");
             }
@@ -619,65 +590,6 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         });
     }
 
-    /// <summary>
-    /// Test: Channel persistence across device reconnection
-    /// Research shows channels stored in /channels2 file with lazy-write mechanism
-    /// </summary>
-    [Fact]
-    public async Task Test_13_ChannelPersistence_ShouldSurviveReconnection()
-    {
-        await ExecuteIsolationTestAsync("Channel Persistence (/channels2 File & Lazy-Write)", async (client) =>
-        {
-            // Create a persistent test channel
-            var persistentChannelName = $"Persistent_{DateTime.Now:HHmmss}";
-            var channelConfig = new Channel
-            {
-                Name = persistentChannelName,
-                Frequency = 433000000,
-                IsEncrypted = true,
-                EncryptionKey = Convert.ToHexString(GenerateChannelKey())
-            };
-
-            var createdChannel = await client.SetChannelAsync(channelConfig);
-            _createdTestChannels.Add(createdChannel.Index.ToString());
-
-            _output.WriteLine($"   Created persistent channel: {persistentChannelName}");
-            _output.WriteLine($"   Research: Stored in /channels2 file (68 bytes per record)");
-            _output.WriteLine($"   Lazy-write: 5-second delay before flash write");
-
-            // Wait for lazy-write to complete (research shows 5-second delay)
-            _output.WriteLine($"   Waiting for lazy-write completion (5+ seconds)...");
-            await Task.Delay(6000);
-
-            // Disconnect and reconnect to simulate device restart
-            _output.WriteLine($"   Simulating device restart (disconnect/reconnect)...");
-
-            client.Disconnect();
-
-            await Task.Delay(2000); // Wait for clean disconnect
-
-            await client.ConnectAsync();
-
-            // Check if channel configuration persisted
-            var retrievedChannels = await client.GetChannelsAsync();
-            var persistedChannel = retrievedChannels.FirstOrDefault(c =>
-                c.Name.Equals(persistentChannelName, StringComparison.OrdinalIgnoreCase));
-
-            if (persistedChannel != null)
-            {
-                _output.WriteLine($"   ✅ Channel persisted after reconnection: {persistedChannel.Name}");
-                _output.WriteLine($"      Frequency: {persistedChannel.Frequency}");
-                _output.WriteLine($"      Encrypted: {persistedChannel.IsEncrypted}");
-                _output.WriteLine($"   ✅ /channels2 file persistence validated");
-            }
-            else
-            {
-                _output.WriteLine($"   ⚠️  Channel not found after reconnection");
-                _output.WriteLine($"   📝 Note: May indicate lazy-write timing or storage issue");
-            }
-        });
-    }
-
     #endregion
 
     #region Error Handling Tests
@@ -716,15 +628,13 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 try
                 {
                     var channelName = $"CapTest_{i}_{DateTime.Now:HHmmss}";
-                    var channelConfig = new Channel
-                    {
-                        Name = channelName,
-                        Frequency = 433000000,
-                        IsEncrypted = false
-                    };
+                    var channelParams = ChannelParams.Create(0, channelName, GenerateChannelKey());
 
-                    var result = await client.SetChannelAsync(channelConfig);
-                    _createdTestChannels.Add(result.Index.ToString());
+                    await client.SetChannelAsync(channelParams);
+                    Channel? channel = await client.TryGetChannelAsync(channelName);
+                    Assert.NotNull(channel);
+
+                    _createdTestChannels.Add(channel.Index.ToString());
 
                     _output.WriteLine($"   ✅ Created channel {i + 1}: {channelName}");
                 }
@@ -791,15 +701,11 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     #region Helper Methods
 
     /// <summary>
-    /// Generate a cryptographically random 32-byte AES-256 key
-    /// Research shows MeshCore uses 32-byte keys for maximum security
+    /// Generates a cryptographically random 16-byte channel secret
     /// </summary>
-    private static byte[] GenerateChannelKey()
+    private static ChannelSecret GenerateChannelKey()
     {
-        var random = new Random();
-        var key = new byte[ExpectedChannelKeyLength]; // 32 bytes for AES-256
-        random.NextBytes(key);
-        return key;
+        return ChannelSecret.CreateRandom();
     }
 
     /// <summary>
@@ -809,12 +715,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     {
         try
         {
-            var invalidConfig = new Channel
-            {
-                Name = "InvalidFreq",
-                Frequency = -1,
-                IsEncrypted = false
-            };
+            var invalidConfig = ChannelParams.Create(0, "InvalidFreq", GenerateChannelKey());
 
             await client.SetChannelAsync(invalidConfig);
             _output.WriteLine("   ❌ Expected exception for invalid frequency was not thrown");
@@ -879,13 +780,8 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     {
         try
         {
-            var malformedConfig = new Channel
-            {
-                Name = "MalformedKey",
-                Frequency = 433000000,
-                IsEncrypted = true,
-                EncryptionKey = "NOT_VALID_HEX"
-            };
+            var malformedSecret = ChannelSecret.FromHex("NOT_VALID_HEX_NOT_VALID_HEX_0000");
+            var malformedConfig = ChannelParams.Create(0, "MalformedKey", malformedSecret);
 
             await client.SetChannelAsync(malformedConfig);
             _output.WriteLine("   ⚠️  Malformed encryption key was accepted");
