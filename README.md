@@ -38,12 +38,11 @@ MeshCore.Net.SDK/
 ?   ??? Protocol/               # Protocol implementation
 ?   ??? Models/                 # Data models
 ?   ??? Exceptions/             # Custom exceptions
-?   ??? MeshCodeClient.cs       # Main client
+?   ??? MeshCoreClient.cs       # Main client
 ??? MeshCore.Net.SDK.Tests/     # Unit tests
 ??? MeshCore.Net.SDK.Demo/      # Console demo application
 ?   ??? Demos/                  # Demo implementations
-?   ?   ??? BasicDemo.cs       # Basic usage demonstration
-?   ?   ??? AdvancedDemo.cs    # Advanced features demonstration
+?   ?   ??? Demo.cs            # Device connection, messaging, and configuration
 ?   ??? Program.cs             # Demo entry point
 ??? .github/                    # CI/CD workflows and templates
 ??? scripts/                    # Release automation scripts
@@ -71,19 +70,17 @@ dotnet build
 Run the included demo application with various options:
 
 ```bash
-# Basic demo with auto-detected transport
+# Demo with auto-detected transport
 dotnet run --project MeshCore.Net.SDK.Demo
 
-# Advanced demo with transport architecture showcase
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced
-
-# USB-specific demos
+# USB devices only
 dotnet run --project MeshCore.Net.SDK.Demo -- --usb
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced --usb
 
-# Bluetooth LE demos (architecture demonstration)
+# Bluetooth LE devices (v2.0 preview)
 dotnet run --project MeshCore.Net.SDK.Demo -- --bluetooth
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced --ble
+
+# Verbose logging
+dotnet run --project MeshCore.Net.SDK.Demo -- --usb --verbose
 
 # Show help with all options
 dotnet run --project MeshCore.Net.SDK.Demo -- --help
@@ -97,12 +94,11 @@ dotnet run --project MeshCore.Net.SDK.Demo -- --help
 using MeshCore.Net.SDK;
 
 // Discover available devices (USB devices currently)
-var devices = await MeshCodeClient.DiscoverDevicesAsync();
+var devices = await MeshCoreClient.DiscoverDevicesAsync();
 Console.WriteLine($"Found {devices.Count} MeshCore devices");
 
 // Connect to the first device
-using var client = new MeshCodeClient(devices[0]);
-await client.ConnectAsync();
+using var client = await MeshCoreClient.ConnectAsync(devices[0]);
 
 // Get device information
 var deviceInfo = await client.GetDeviceInfoAsync();
@@ -113,14 +109,14 @@ Console.WriteLine($"Connected to: {deviceInfo.DeviceId} via {devices[0].Connecti
 
 ```csharp
 // Get contacts
-var contacts = await client.GetContactsAsync();
+var contacts = await client.GetContactsAsync(CancellationToken.None);
 
 if (contacts.Any())
 {
     // Send a message to the first contact
     var contact = contacts.First();
-    var message = await client.SendMessageAsync(contact.Id, "Hello from C# SDK!");
-    Console.WriteLine($"Message sent: {message.Id}");
+    var message = await client.SendMessageAsync(contact, "Hello from C# SDK!");
+    Console.WriteLine($"Message sent to {contact.Name}");
 }
 ```
 
@@ -128,7 +124,7 @@ if (contacts.Any())
 
 ```csharp
 // Set up event handlers
-client.MessageReceived += (sender, message) =>
+client.Message += (sender, message) =>
 {
     Console.WriteLine($"?? New message from {message.FromContactId}: {message.Content}");
 };
@@ -148,14 +144,13 @@ client.NetworkStatusChanged += (sender, status) =>
 
 ```csharp
 // This will be available in future releases
-var bluetoothDevices = await MeshCodeClient.DiscoverBluetoothDevicesAsync();
-using var client = new MeshCodeClient(bluetoothDevices[0]); // BLE device
-await client.ConnectAsync(); // Same API, different transport!
+var bluetoothDevices = await MeshCoreClient.DiscoverBluetoothDevicesAsync();
+using var client = await MeshCoreClient.ConnectAsync(bluetoothDevices[0]); // Same API, different transport!
 ```
 
 ## ?? API Reference
 
-### MeshCodeClient
+### MeshCoreClient
 
 The main client class for interacting with MeshCore devices.
 
@@ -170,16 +165,15 @@ The main client class for interacting with MeshCore devices.
 
 #### Contact Management
 
-- `Task<List<Contact>> GetContactsAsync()` - Get all contacts
-- `Task<Contact> AddContactAsync(string name, string nodeId)` - Add a new contact
-- `Task DeleteContactAsync(string contactId)` - Delete a contact
+- `Task<IEnumerable<Contact>> GetContactsAsync(CancellationToken)` - Get all contacts
+- `Task<Contact?> TryGetContactAsync(ContactPublicKey, CancellationToken)` - Get a contact by public key
+- `Task<Contact> AddContactAsync(string name, ContactPublicKey publicKey)` - Add a new contact
+- `Task DeleteContactAsync(ContactPublicKey, CancellationToken)` - Delete a contact
 
 #### Messaging
 
-- `Task<Message> SendMessageAsync(string toContactId, string content)` - Send a text message
-- `Task<List<Message>> GetMessagesAsync()` - Get all messages
-- `Task MarkMessageReadAsync(string messageId)` - Mark a message as read
-- `Task DeleteMessageAsync(string messageId)` - Delete a message
+- `Task<Message> SendMessageAsync(Contact contact, string content)` - Send a text message
+- `Task SyncronizeQueueAsync(CancellationToken)` - Synchronize the message queue from the device
 
 #### Network Operations
 
@@ -199,7 +193,8 @@ The main client class for interacting with MeshCore devices.
 
 ### Events
 
-- `MessageReceived` - Fired when a new message is received
+- `Message` - Fired when a new message is received
+- `Channel` - Fired when a channel is added or updated
 - `ContactStatusChanged` - Fired when a contact's status changes
 - `NetworkStatusChanged` - Fired when network status changes
 - `ErrorOccurred` - Fired when an error occurs
@@ -250,7 +245,6 @@ The included demo application shows practical usage of the SDK with transport se
 
 ### Demo Commands
 
-**Basic Demo** - Device connection and essential operations:
 ```bash
 # Auto-detect any available transport
 dotnet run --project MeshCore.Net.SDK.Demo
@@ -260,22 +254,10 @@ dotnet run --project MeshCore.Net.SDK.Demo -- --usb
 
 # Bluetooth LE devices only (v2.0 preview)
 dotnet run --project MeshCore.Net.SDK.Demo -- --bluetooth
-```
 
-**Advanced Demo** - Transport architecture and complex operations:
-```bash
-# Advanced demo with auto-detection
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced
+# Verbose logging
+dotnet run --project MeshCore.Net.SDK.Demo -- --verbose
 
-# Advanced demo with USB transport focus
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced --usb
-
-# Advanced demo with Bluetooth LE architecture preview
-dotnet run --project MeshCore.Net.SDK.Demo -- --advanced --ble
-```
-
-**Help and Options:**
-```bash
 # Show all available options
 dotnet run --project MeshCore.Net.SDK.Demo -- --help
 ```
@@ -284,8 +266,7 @@ dotnet run --project MeshCore.Net.SDK.Demo -- --help
 
 The demo project (`MeshCore.Net.SDK.Demo`) contains:
 
-- `Demos/BasicDemo.cs` - Basic device connection, messaging, and configuration with transport selection
-- `Demos/AdvancedDemo.cs` - Advanced features, concurrent operations, and transport-specific demonstrations
+- `Demos/Demo.cs` - Device connection, messaging, and configuration with transport selection
 - `Program.cs` - Entry point with command-line argument handling and help system
 
 ### Transport Selection

@@ -95,7 +95,9 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
 
                 try
                 {
-                    await client.SendChannelMessageAsync(BotChannelName, message);
+                    var botChannel = await client.TryGetChannelAsync(BotChannelName);
+                    Assert.NotNull(botChannel);
+                    await client.SendChannelMessageAsync(botChannel, message, CancellationToken.None);
 
                     _output.WriteLine($"🎉 TEST PASSED: SDK correctly implemented hashtag channel messaging!");
                 }

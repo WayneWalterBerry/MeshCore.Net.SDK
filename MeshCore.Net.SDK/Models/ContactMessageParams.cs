@@ -45,17 +45,17 @@ namespace MeshCore.Net.SDK.Models
         public string Content { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the timestamp when the message was created (Unix epoch seconds).
-        /// Defaults to the current UTC time.
+        /// Gets or sets the UTC timestamp when the message was created.
+        /// Defaults to the current UTC time. Serialized as a Unix epoch uint32 on the wire.
         /// </summary>
         [JsonPropertyName("timestamp")]
-        public uint Timestamp { get; set; } = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
         /// <summary>
         /// Gets or sets the retry attempt counter (0 for first attempt, up to 3).
         /// </summary>
         [JsonPropertyName("attempt")]
-        public byte Attempt { get; set; }
+        public uint Attempt { get; set; }
 
         /// <summary>
         /// Gets a value indicating whether the message has a valid target public key.
@@ -100,7 +100,7 @@ namespace MeshCore.Net.SDK.Models
             {
                 TargetPublicKey = targetPublicKey,
                 Content = content,
-                Timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                Timestamp = DateTime.UtcNow,
                 Attempt = 0
             };
         }
@@ -110,11 +110,15 @@ namespace MeshCore.Net.SDK.Models
         /// </summary>
         /// <param name="targetPublicKey">The 32-byte public key of the target contact.</param>
         /// <param name="content">The message text to send.</param>
-        /// <param name="timestamp">The Unix epoch timestamp for the message.</param>
+        /// <param name="timestamp">The UTC timestamp for the message. Converted to Unix epoch on the wire.</param>
         /// <param name="attempt">The retry attempt counter (0-3).</param>
         /// <returns>A new <see cref="ContactMessageParams"/> instance ready for serialization.</returns>
         /// <exception cref="ArgumentException">Thrown when <paramref name="content"/> is null or empty.</exception>
-        public static ContactMessageParams Create(ContactPublicKey targetPublicKey, string content, uint timestamp, byte attempt)
+        public static ContactMessageParams Create(
+            ContactPublicKey targetPublicKey,
+            string content, 
+            DateTime timestamp,
+            uint attempt = 0)
         {
             if (string.IsNullOrEmpty(content))
             {

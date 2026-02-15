@@ -80,11 +80,12 @@ namespace MeshCore.Net.SDK.Serialization
             // 1. txt_type = 0x00 (plain text)
             payload[offset++] = TXT_TYPE_PLAIN;
 
-            // 2. attempt counter
-            payload[offset++] = obj.Attempt;
+            // 2. attempt counter (wire format is 1 byte)
+            payload[offset++] = (byte)obj.Attempt;
 
-            // 3. timestamp (4 bytes, little-endian uint32)
-            BitConverter.GetBytes(obj.Timestamp).CopyTo(payload, offset);
+            // 3. timestamp (4 bytes, little-endian uint32) - convert DateTime UTC to Unix epoch
+            var unixTimestamp = (uint)new DateTimeOffset(obj.Timestamp, TimeSpan.Zero).ToUnixTimeSeconds();
+            BitConverter.GetBytes(unixTimestamp).CopyTo(payload, offset);
             offset += 4;
 
             // 4. pubkey_prefix (first 6 bytes of the 32-byte public key)

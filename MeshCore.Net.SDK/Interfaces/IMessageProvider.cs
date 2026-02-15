@@ -13,5 +13,7 @@ namespace MeshCore.Net.SDK.Interfaces
         public IEnumerable<Message> GetMessages();
 
         public Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default);
+
+        public Task SendChannelMessageAsync(Channel channel, string content, CancellationToken cancellationToken = default);
     }
 }

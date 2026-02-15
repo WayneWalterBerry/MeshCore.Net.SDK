@@ -350,16 +350,15 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         {
             // Get current channel for messaging
             var currentChannel = await client.GetPublicChannelAsync();
-            var targetChannelName = currentChannel?.Name ?? DefaultChannelName;
 
-            _output.WriteLine($"   Target Channel: {targetChannelName}");
+            _output.WriteLine($"   Target Channel: {currentChannel.Name}");
             _output.WriteLine($"   Protocol: PAYLOAD_TYPE_GRP_TXT (0x05)");
             _output.WriteLine($"   Routing: Flood routing (research documented)");
 
             var testMessage = $"Test flood message from SDK at {DateTime.Now:HH:mm:ss}";
             _output.WriteLine($"   Message: '{testMessage}'");
 
-            await client.SendChannelMessageAsync(targetChannelName, testMessage);
+            await client.SendChannelMessageAsync(currentChannel, testMessage, CancellationToken.None);
 
             _output.WriteLine($"✅ Channel message sent successfully");
             _output.WriteLine($"   📝 Research Note: Message propagates via repeater flood network-wide");
@@ -376,7 +375,6 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         await ExecuteIsolationTestAsync("Channel Message Format (SenderName: Message)", async (client) =>
         {
             var currentChannel = await client.GetPublicChannelAsync();
-            var targetChannelName = currentChannel?.Name ?? DefaultChannelName;
 
             var testMessages = new[]
             {
@@ -388,7 +386,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             };
 
             _output.WriteLine($"   Research: Messages encrypted as 'SenderName: Message text' format");
-            _output.WriteLine($"   Channel: {targetChannelName}");
+            _output.WriteLine($"   Channel: {currentChannel.Name}");
 
             foreach (var (testType, messageContent) in testMessages)
             {
@@ -396,7 +394,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 {
                     _output.WriteLine($"   Testing {testType} (length: {messageContent.Length})");
 
-                    await client.SendChannelMessageAsync(targetChannelName, messageContent);
+                    await client.SendChannelMessageAsync(currentChannel, messageContent, CancellationToken.None);
 
                     _output.WriteLine($"   ✅ {testType} message sent successfully");
 
@@ -448,7 +446,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _createdTestChannels.Add(channel1.Index.ToString());
 
             // Send test message to first channel
-            await client.SendChannelMessageAsync(channel1Name, "Message for isolated network 1");
+            await client.SendChannelMessageAsync(channel1, "Message for isolated network 1", CancellationToken.None);
             _output.WriteLine($"   ✅ Channel 1: {channel1Name} (isolated sub-network created)");
 
             // Create second private channel
@@ -461,7 +459,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             _createdTestChannels.Add(channel2.Index.ToString());
 
             // Send test message to second channel
-            await client.SendChannelMessageAsync(channel2Name, "Message for isolated network 2");
+            await client.SendChannelMessageAsync(channel2, "Message for isolated network 2", CancellationToken.None);
             _output.WriteLine($"   ✅ Channel 2: {channel2Name} (isolated sub-network created)");
 
             _output.WriteLine($"✅ Successfully created two isolated private channels");
@@ -508,7 +506,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
             if (currentChannel?.IsDefaultChannel == true)
             {
                 var testMessage = "Public channel test - non-sensitive data";
-                await client.SendChannelMessageAsync(currentChannel.Name, testMessage);
+                await client.SendChannelMessageAsync(currentChannel, testMessage, CancellationToken.None);
                 _output.WriteLine($"   ✅ Successfully sent message on public channel");
             }
         });
@@ -558,7 +556,7 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
                 try
                 {
                     var testMessage = $"Test message for {name}";
-                    await client.SendChannelMessageAsync(name, testMessage);
+                    await client.SendChannelMessageAsync(config, testMessage, CancellationToken.None);
                     _output.WriteLine($"   ✅ Message sent to {name}");
 
                     await Task.Delay(200); // Avoid overwhelming device
@@ -736,7 +734,8 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
     {
         try
         {
-            await client.SendChannelMessageAsync("NonExistentChannel_" + Guid.NewGuid(), "Test message");
+            var fakeChannel = new Channel { Index = 255, Name = "NonExistentChannel_" + Guid.NewGuid() };
+            await client.SendChannelMessageAsync(fakeChannel, "Test message", CancellationToken.None);
             _output.WriteLine("   ⚠️  Sending to non-existent channel did not throw exception");
         }
         catch (ProtocolException)
@@ -757,9 +756,8 @@ public class LiveRadioChannelApiTests : LiveRadioTestBase
         try
         {
             var currentChannel = await client.GetPublicChannelAsync();
-            var channelName = currentChannel?.Name ?? DefaultChannelName;
 
-            await client.SendChannelMessageAsync(channelName, null!);
+            await client.SendChannelMessageAsync(currentChannel, null!, CancellationToken.None);
             _output.WriteLine("   ❌ Expected exception for null message was not thrown");
         }
         catch (ArgumentNullException)

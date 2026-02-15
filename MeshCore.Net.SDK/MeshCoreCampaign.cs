@@ -57,9 +57,33 @@ namespace MeshCore.Net.SDK
             }
         }
 
-        public Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default)
+        public async Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default)
         {
-            throw new NotImplementedException();
+            Message message = await meshCoreClient.SendMessageAsync(contact, content, cancellationToken);
+            
+            // Add Outbound Messgaes To the Cache.
+            messageCache.Add(message);
+
+            return message;
+        }
+
+        public async Task SendChannelMessageAsync(Channel channel, string content, CancellationToken cancellationToken = default)
+        {
+            await meshCoreClient.SendChannelMessageAsync(channel, content, cancellationToken);
+
+            // The device does not echo the message back on success (RESP_CODE_OK),
+            // so we construct an outbound Message from the input parameters —
+            // matching the same shape a received channel message would have.
+            var outbound = new Message
+            {
+                FromContactId = meshCoreClient.ConnectionId ?? string.Empty,
+                ChannelIndex = channel.Index,
+                Content = content,
+                Timestamp = DateTime.UtcNow,
+                IsTextMessage = true
+            };
+
+            messageCache.Add(outbound);
         }
 
         private void MeshCoreClient_MessageReceived(object? sender, Message message)

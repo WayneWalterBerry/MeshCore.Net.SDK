@@ -16,6 +16,8 @@ using MeshCore.Net.SDK.Serialization;
 using MeshCore.Net.SDK.Transport;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Polly;
+using Polly.Retry;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace MeshCore.Net.SDK;
@@ -764,7 +766,9 @@ public class MeshCoreClient :
     #region Message Operations
 
     /// <summary>
-    /// Sends a text message to a contact using the MeshCore protocol.
+    /// Sends a text message to a contact using the MeshCore protocol with automatic retry.
+    /// On failure the attempt counter in the payload is incremented and the message is resent
+    /// using exponential back-off (up to 3 retries).
     /// Wire format: [txt_type(1)][attempt(1)][timestamp(4 LE)][pubkey_prefix(6)][message UTF-8]
     /// </summary>
     /// <param name="contact">The contact to send the message to</param>
@@ -772,45 +776,73 @@ public class MeshCoreClient :
     /// <param name="cancellationToken">Cancellation Token</param>
     /// <returns>The sent message parsed from the device response</returns>
     /// <exception cref="ArgumentException">Thrown when content is null or empty</exception>
-    /// <exception cref="ProtocolException">Thrown when the device returns an error</exception>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error after all retry attempts are exhausted</exception>
     public async Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(content))
+        {
             throw new ArgumentException("Message content cannot be null or empty", nameof(content));
+        }
 
         MeshCoreSdkEventSource.Log.MessageSendingStarted(contact.Name, content.Length);
 
-        var contactMessageParams = ContactMessageParams.Create(contact.PublicKey, content);
-        var payload = ContactMessageParamsSerialization.Instance.Serialize(contactMessageParams);
+        var timestamp = DateTime.UtcNow;
+        uint attempt = 0;
 
-        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_TXT_MSG, payload, cancellationToken);
-
-        var responseCode = response.GetResponseCode();
-        switch (responseCode)
-        {
-            case MeshCoreResponseCode.RESP_CODE_SENT:
-
-                Message? message;
-                if (!MessageV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+        var retryPipeline = new ResiliencePipelineBuilder<Message>()
+            .AddRetry(new RetryStrategyOptions<Message>
+            {
+                MaxRetryAttempts = 3,
+                Delay = TimeSpan.FromSeconds(2),
+                BackoffType = DelayBackoffType.Exponential,
+                ShouldHandle = new PredicateBuilder<Message>().Handle<ProtocolException>(),
+                OnRetry = args =>
                 {
-                    MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, "Failed to parse sent message");
-                    throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, "Failed to parse sent message");
+                    attempt = (uint)args.AttemptNumber + 1;
+                    _logger.LogWarning(
+                        args.Outcome.Exception,
+                        "Retry {Attempt} sending message to {ContactName}",
+                        attempt,
+                        contact.Name);
+                    return default;
                 }
+            })
+            .Build();
 
-                MeshCoreSdkEventSource.Log.MessageSent(contact.Name);
+        return await retryPipeline.ExecuteAsync(async ct =>
+        {
+            var contactMessageParams = ContactMessageParams.Create(contact.PublicKey, content, timestamp, attempt);
+            var payload = ContactMessageParamsSerialization.Instance.Serialize(contactMessageParams);
 
-                return message;
+            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_TXT_MSG, payload, ct);
 
-            default:
+            var responseCode = response.GetResponseCode();
+            switch (responseCode)
+            {
+                case MeshCoreResponseCode.RESP_CODE_SENT:
 
-                var status = response.GetStatus();
-                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
-                var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte, "Failed to send message");
+                    Message? message;
+                    if (!MessageV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
+                    {
+                        MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, "Failed to parse sent message");
+                        throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, "Failed to parse sent message");
+                    }
 
-                MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, ex.Message);
+                    MeshCoreSdkEventSource.Log.MessageSent(contact.Name);
 
-                throw ex;
-        }
+                    return message;
+
+                default:
+
+                    var status = response.GetStatus();
+                    var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+                    var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte, "Failed to send message");
+
+                    MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, ex.Message);
+
+                    throw ex;
+            }
+        }, cancellationToken);
     }
 
     /// <summary>
@@ -1174,141 +1206,83 @@ public class MeshCoreClient :
     /// Sends a message to a specific channel using the correct MeshCore protocol format
     /// Based on research: CMD_SEND_CHANNEL_TXT_MSG payload = CMD + TXT_TYPE + CHANNEL_IDX + TIMESTAMP + MESSAGE + NULL
     /// </summary>
-    /// <param name="channelName">The name of the channel to send the message to</param>
+    /// <param name="channel">The name of the channel to send the message to</param>
     /// <param name="content">The message content</param>
+    /// <param name="cancellationToken">Cancellation Token</param>
     /// <returns>The sent message</returns>
     /// <exception cref="NotSupportedException">Thrown when the device does not support channel messaging</exception>
-    public async Task SendChannelMessageAsync(string channelName, string content)
+    public async Task SendChannelMessageAsync(Channel channel, string content, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(channelName))
-            throw new ArgumentException("Channel name cannot be null or empty", nameof(channelName));
+        if (channel == null)
+        {
+            throw new ArgumentNullException("Channel cannot be null or empty", nameof(channel));
+        }
 
         if (string.IsNullOrEmpty(content))
-            throw new ArgumentException("Message content cannot be null or empty", nameof(content));
+        {
+            throw new ArgumentNullException("Message content cannot be null or empty", nameof(content));
+        }
 
         var deviceId = _transport.ConnectionId ?? "Unknown";
 
-        _logger.LogDebug("Sending channel message to {ChannelName} from device {DeviceId}, content length: {ContentLength}",
-            channelName, deviceId, content.Length);
-        MeshCoreSdkEventSource.Log.MessageSendingStarted(channelName, content.Length);
+        MeshCoreSdkEventSource.Log.MessageSendingStarted(channel.Name, content.Length);
 
         try
         {
-            // Try cache first, then query device if not found
-            Channel? channel = await TryGetChannelAsync(channelName);
-            if (channel == null)
+            ChannelMessageParams channelMessageParams = ChannelMessageParams.Create(channel.Index, content);
+            byte[] payload = ChannelMessageParamsSerialization.Instance.Serialize(channelMessageParams);
+
+            MeshCoreFrame response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, payload, cancellationToken);
+
+            MeshCoreResponseCode responseCode = response.GetResponseCode();
+
+            switch (responseCode)
             {
-                _logger.LogError("Channel '{ChannelName}' not found on device {DeviceId}. Cannot send message.", channelName, deviceId);
-                throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, 0x02,
-                    $"Channel '{channelName}' not found. Use CMD_SET_CHANNEL to configure the channel first.");
-            }
-
-            _logger.LogDebug("Mapped channel '{ChannelName}' to index {channelConfig.Id} for device {DeviceId}",
-                channelName, channel.Index.ToString(), deviceId);
-
-            // Build the correct CMD_SEND_CHANNEL_TXT_MSG payload format:
-            // CMD(0x03) + TXT_TYPE(0x00) + CHANNEL_IDX + TIMESTAMP(4 bytes) + MESSAGE + NULL
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var messageBytes = Encoding.UTF8.GetBytes(content);
-
-            var payload = new List<byte>
-            {
-                // CMD is added automatically by transport layer
-                0x00, // txt_type - 0x00 for plain text
-                (byte)channel.Index, // channel_idx - numeric channel ID
-            };
-
-            // Add timestamp (4 bytes, little-endian as per MeshCore protocol)
-            var timestampBytes = BitConverter.GetBytes((uint)timestamp);
-            if (!BitConverter.IsLittleEndian)
-            {
-                Array.Reverse(timestampBytes); // Ensure little-endian on big-endian systems
-            }
-            payload.AddRange(timestampBytes);
-
-            // Add message content
-            payload.AddRange(messageBytes);
-
-            // Add null terminator
-            payload.Add(0x00);
-
-            var payloadArray = payload.ToArray();
-
-            _logger.LogDebug("Sending CMD_SEND_CHANNEL_TXT_MSG with payload: TXT_TYPE=0x00, CHANNEL_IDX=0x{ChannelIndex:X2}, TIMESTAMP={Timestamp}, MESSAGE_LEN={MessageLen}",
-                channel.Index, timestamp, messageBytes.Length);
-
-            var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, payloadArray);
-
-            var responseCode = response.GetResponseCode();
-
-            // According to research: CMD_SEND_CHANNEL_TXT_MSG should return RESP_CODE_SENT (0x06), not RESP_CODE_OK
-            if (responseCode == MeshCoreResponseCode.RESP_CODE_SENT)
-            {
-                _logger.LogInformation("Channel message sent successfully to {ChannelName} (index {ChannelIndex}) from device {DeviceId}",
-                    channelName, channel.Index, deviceId);
-
-                // Agent mode: Log message sent without a separate messageId parameter
-                MeshCoreSdkEventSource.Log.MessageSent(channelName);
-
-                return;
-            }
-            else if (responseCode == MeshCoreResponseCode.RESP_CODE_ERR)
-            {
-                var status = response.GetStatus();
-                var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
-
-                // Handle specific error cases based on research
-                if (status == MeshCoreStatus.InvalidCommand)
-                {
-                    _logger.LogError("Device {DeviceId} does not support CMD_SEND_CHANNEL_TXT_MSG", deviceId);
-                    throw new NotSupportedException($"Channel messaging is not supported by this device firmware. Device {deviceId} does not recognize the CMD_SEND_CHANNEL_TXT_MSG command.");
-                }
-                else if (statusByte == 0x02) // ERR_CODE_NOT_FOUND from research
-                {
-                    _logger.LogError("Channel {ChannelName} (index {ChannelIndex}) not found on device {DeviceId}. Channel may need to be configured first.",
-                        channelName, channel.Index, deviceId);
-
-                    throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
-                        $"Channel '{channelName}' (index {channel.Index}) not found. Use CMD_SET_CHANNEL to configure the channel first.");
-                }
-                else
-                {
-                    var errorMessage = status switch
-                    {
-                        MeshCoreStatus.InvalidParameter => "Invalid channel index or message content",
-                        MeshCoreStatus.DeviceError => "Device is in an error state and cannot send messages",
-                        MeshCoreStatus.NetworkError => "Network error occurred while sending message",
-                        MeshCoreStatus.TimeoutError => "Message sending timed out",
-                        _ => $"Failed to send channel message (status: 0x{statusByte:X2})"
-                    };
-
-                    var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte, errorMessage);
-
-                    _logger.LogProtocolError(ex, (byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte);
-                    MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte, ex.Message);
-
-                    throw ex;
-                }
-            }
-            else
-            {
-                // Unexpected response code - log warning but don't fail
-                _logger.LogWarning("Unexpected response code {ResponseCode} for CMD_SEND_CHANNEL_TXT_MSG on device {DeviceId}, treating as success", responseCode, deviceId);
-
-                // If it's any other success code, treat as success
-                if (responseCode == MeshCoreResponseCode.RESP_CODE_OK)
-                {
-                    _logger.LogInformation("Channel message accepted with RESP_CODE_OK instead of expected RESP_CODE_SENT");
-
-                    // Agent mode: Log message sent without messageId
-                    MeshCoreSdkEventSource.Log.MessageSent(channelName);
+                case MeshCoreResponseCode.RESP_CODE_OK:
+                case MeshCoreResponseCode.RESP_CODE_SENT:
+                    MeshCoreSdkEventSource.Log.MessageSent(channel.Name);
                     return;
-                }
-                else
+
+                case MeshCoreResponseCode.RESP_CODE_ERR:
                 {
-                    throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, 0x01,
-                        $"Unexpected response code: {responseCode}");
+                    var status = response.GetStatus();
+                    var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
+
+                    switch (statusByte)
+                    {
+                        case (byte)MeshCoreStatus.InvalidCommand:
+                            throw new NotSupportedException($"Channel messaging is not supported by this device firmware. Device {deviceId} does not recognize the CMD_SEND_CHANNEL_TXT_MSG command.");
+
+                        case (byte)MeshCoreStatus.InvalidParameter: // ERR_CODE_NOT_FOUND (0x02)
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
+                                $"Channel '{channel.Name}' (index {channel.Index}) not found. Use CMD_SET_CHANNEL to configure the channel first.");
+
+                        case (byte)MeshCoreStatus.DeviceError:
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
+                                "Device is in an error state and cannot send messages");
+
+                        case (byte)MeshCoreStatus.NetworkError:
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
+                                "Network error occurred while sending message");
+
+                        case (byte)MeshCoreStatus.TimeoutError:
+                            throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
+                                "Message sending timed out");
+
+                        default:
+                        {
+                            var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte,
+                                $"Failed to send channel message (status: 0x{statusByte:X2})");
+
+                            MeshCoreSdkEventSource.Log.ProtocolError((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, statusByte, ex.Message);
+
+                            throw ex;
+                        }
+                    }
                 }
+
+                default:
+                    throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_CHANNEL_TXT_MSG, 0x01, $"Unexpected response code: {responseCode}");
             }
         }
         catch (Exception ex) when (!(ex is ProtocolException) && !(ex is NotSupportedException))
@@ -1536,9 +1510,9 @@ public class MeshCoreClient :
 
         ChannelParams channelParams = ChannelParams.Create(emptySlot.Value, name, encryptionKey);
 
-         _logger.LogDebug(
-            "Adding channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId} with encryption key in {Duration}ms",
-            name, emptySlot.Value, deviceId, (long)(DateTimeOffset.UtcNow - startTime).TotalMilliseconds);
+        _logger.LogDebug(
+           "Adding channel '{ChannelName}' at index {ChannelIndex} on device {DeviceId} with encryption key in {Duration}ms",
+           name, emptySlot.Value, deviceId, (long)(DateTimeOffset.UtcNow - startTime).TotalMilliseconds);
 
         await SetChannelAsync(channelParams, cancellationToken);
 
