@@ -28,16 +28,8 @@ class Program
 
         try
         {
-            if (config.IsAdvanced)
-            {
-                logger.LogInformation("Running Advanced Demo...");
-                await AdvancedDemo.RunAsync(config.PreferredTransport, loggerFactory);
-            }
-            else
-            {
-                logger.LogInformation("Running Basic Demo...");
-                await BasicDemo.RunAsync(config.PreferredTransport, loggerFactory);
-            }
+            logger.LogInformation("Running Demo...");
+            await MeshCoreDemo.RunAsync(config.PreferredTransport, loggerFactory);
         }
         catch (Exception ex)
         {
@@ -134,9 +126,6 @@ class Program
         {
             switch (arg.ToLowerInvariant())
             {
-                case "--advanced":
-                    config.IsAdvanced = true;
-                    break;
                 case "--usb":
                     config.PreferredTransport = DeviceConnectionType.USB;
                     config.TransportSpecified = true;
@@ -174,7 +163,6 @@ class Program
     private static void DisplayConfiguration(DemoConfiguration config, ILogger logger)
     {
         logger.LogInformation("Demo Configuration:");
-        logger.LogInformation("   Mode: {Mode}", config.IsAdvanced ? "Advanced" : "Basic");
         
         if (config.TransportSpecified)
         {
@@ -205,7 +193,6 @@ class Program
         Console.WriteLine("  MeshCore.Net.SDK.Demo [options]");
         Console.WriteLine();
         Console.WriteLine("OPTIONS:");
-        Console.WriteLine("  --advanced          Run advanced demo with architecture showcase");
         Console.WriteLine("  --usb               Prefer USB transport (default)");
         Console.WriteLine("  --bluetooth, --ble  Prefer Bluetooth LE transport");
         Console.WriteLine("  --no-wait           Exit immediately without waiting for keypress");
@@ -213,19 +200,16 @@ class Program
         Console.WriteLine("  --help, -h          Show this help message");
         Console.WriteLine();
         Console.WriteLine("EXAMPLES:");
-        Console.WriteLine("  # Basic demo with auto-detected transport");
+        Console.WriteLine("  # Demo with auto-detected transport");
         Console.WriteLine("  MeshCore.Net.SDK.Demo");
         Console.WriteLine();
-        Console.WriteLine("  # Advanced demo with USB transport and verbose logging");
-        Console.WriteLine("  MeshCore.Net.SDK.Demo --advanced --usb --verbose");
+        Console.WriteLine("  # Demo with USB transport and verbose logging");
+        Console.WriteLine("  MeshCore.Net.SDK.Demo --usb --verbose");
         Console.WriteLine();
-        Console.WriteLine("  # Basic demo specifically for Bluetooth LE");
+        Console.WriteLine("  # Demo specifically for Bluetooth LE");
         Console.WriteLine("  MeshCore.Net.SDK.Demo --bluetooth");
         Console.WriteLine();
-        Console.WriteLine("  # Advanced demo with Bluetooth LE");
-        Console.WriteLine("  MeshCore.Net.SDK.Demo --advanced --ble");
-        Console.WriteLine();
-        Console.WriteLine("  # Basic demo with auto-exit (useful for automation)");
+        Console.WriteLine("  # Demo with auto-exit (useful for automation)");
         Console.WriteLine("  MeshCore.Net.SDK.Demo --no-wait");
         Console.WriteLine();
         Console.WriteLine("TRANSPORT STATUS:");
@@ -256,7 +240,6 @@ class Program
 
     private class DemoConfiguration
     {
-        public bool IsAdvanced { get; set; } = false;
         public DeviceConnectionType PreferredTransport { get; set; } = DeviceConnectionType.USB;
         public bool TransportSpecified { get; set; } = false;
         public bool NoWait { get; set; } = false;

@@ -144,9 +144,8 @@ jobs:
           ```csharp
           using MeshCore.Net.SDK;
           
-          var devices = await MeshCodeClient.DiscoverDevicesAsync();
-          using var client = new MeshCodeClient(devices[0]);
-          await client.ConnectAsync();
+          var devices = await MeshCoreClient.DiscoverDevicesAsync();
+          using var client = await MeshCoreClient.ConnectAsync(devices[0]);
           
           var deviceInfo = await client.GetDeviceInfoAsync();
           Console.WriteLine($"Connected to: {deviceInfo.DeviceId}");

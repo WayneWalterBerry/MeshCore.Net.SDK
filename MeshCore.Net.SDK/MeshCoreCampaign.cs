@@ -10,7 +10,10 @@ namespace MeshCore.Net.SDK
     using MeshCore.Net.SDK.Interfaces;
     using MeshCore.Net.SDK.Models;
 
-    internal class MeshCoreCampaign : IChannelProvider, IDisposable
+    internal class MeshCoreCampaign : 
+        IChannelProvider, 
+        IMessageProvider,
+        IDisposable
     {
         /// <summary>
         /// Default interval between queue synchronization cycles.
@@ -34,9 +37,34 @@ namespace MeshCore.Net.SDK
         {
             this.meshCoreClient = client;
             this.meshCoreClient.Channel += MeshCoreClient_Channel;
-            this.meshCoreClient.MessageReceived += MeshCoreClient_MessageReceived;
+            this.meshCoreClient.Message += MeshCoreClient_MessageReceived;
 
             _syncLoopTask = Task.Run(() => SyncLoopAsync(_syncCts.Token));
+        }
+
+        #region Messages
+
+        public IEnumerable<Message> GetMessages()
+        {
+            return messageCache.ToArray();
+        }
+
+        public void ClearMessagesAsync(CancellationToken cancellationToken = default)
+        {
+            while (!messageCache.IsEmpty && !cancellationToken.IsCancellationRequested)
+            {
+                messageCache.TryTake(out _);
+            }
+        }
+
+        public Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        private void MeshCoreClient_MessageReceived(object? sender, Message message)
+        {
+            messageCache.Add(message);
         }
 
         /// <summary>
@@ -70,14 +98,13 @@ namespace MeshCore.Net.SDK
             }
         }
 
+        #endregion
+
+        #region Channel
+
         private void MeshCoreClient_Channel(object? sender, Channel channel)
         {
             channelCache.AddOrUpdate(channel.Index, channel!, (key, oldValue) => channel!);
-        }
-
-        private void MeshCoreClient_MessageReceived(object? sender, Message message)
-        {
-            messageCache.Add(message);
         }
 
         /// <inheritdoc />
@@ -130,12 +157,15 @@ namespace MeshCore.Net.SDK
             return this.meshCoreClient.SetChannelAsync(channel, cancellation);
         }
 
+        /// <inheritdoc />
         public Task AddChannelAsync(string name, ChannelSecret encryptionKey, CancellationToken cancellationToken = default)
         {
             // MeshCoreClient will automatically update the channel cache when it receives channel info
             // from the radio by calling the MeshCoreClient_Channel event handler.
             return this.meshCoreClient.AddChannelAsync(name, encryptionKey, cancellationToken);
         }
+
+        #endregion
 
         public void Dispose()
         {
@@ -151,7 +181,7 @@ namespace MeshCore.Net.SDK
             }
 
             this.meshCoreClient.Channel -= MeshCoreClient_Channel;
-            this.meshCoreClient.MessageReceived -= MeshCoreClient_MessageReceived;
+            this.meshCoreClient.Message -= MeshCoreClient_MessageReceived;
             this._channelsLoadGate.Dispose();
             this._syncCts.Dispose();
         }

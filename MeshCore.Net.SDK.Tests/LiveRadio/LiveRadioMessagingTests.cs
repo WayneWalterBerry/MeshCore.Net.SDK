@@ -164,7 +164,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
                 }
 
                 // Subscribe to MessageReceived event
-                client.MessageReceived += OnMessageReceived;
+                client.Message += OnMessageReceived;
 
                 try
                 {
@@ -197,7 +197,7 @@ namespace MeshCore.Net.SDK.Tests.LiveRadio
                 finally
                 {
                     // Unsubscribe from event to prevent memory leaks
-                    client.MessageReceived -= OnMessageReceived;
+                    client.Message -= OnMessageReceived;
                     _output.WriteLine($"🧹 Event cleanup: Unsubscribed from MessageReceived event");
                 }
             });

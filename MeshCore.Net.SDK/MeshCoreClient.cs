@@ -23,7 +23,9 @@ namespace MeshCore.Net.SDK;
 /// <summary>
 /// Main client for interacting with MeshCore devices via USB or Bluetooth
 /// </summary>
-public class MeshCoreClient : IDisposable, IChannelProvider
+public class MeshCoreClient :
+    IChannelProvider,
+    IDisposable
 {
     /// <summary>
     /// Maximum number of channels supported by the MeshCore device
@@ -38,7 +40,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
     /// <summary>
     /// Event fired when a message is received from the MeshCore device
     /// </summary>
-    public event EventHandler<Message>? MessageReceived;
+    public event EventHandler<Message>? Message;
 
     /// <summary>
     /// Channel event fired when a channel is added or updated on the MeshCore device
@@ -762,21 +764,26 @@ public class MeshCoreClient : IDisposable, IChannelProvider
     #region Message Operations
 
     /// <summary>
-    /// Sends a text message
+    /// Sends a text message to a contact using the MeshCore protocol.
+    /// Wire format: [txt_type(1)][attempt(1)][timestamp(4 LE)][pubkey_prefix(6)][message UTF-8]
     /// </summary>
-    public async Task<Message> SendMessageAsync(string toContactId, string content)
+    /// <param name="contact">The contact to send the message to</param>
+    /// <param name="content">The message content</param>
+    /// <param name="cancellationToken">Cancellation Token</param>
+    /// <returns>The sent message parsed from the device response</returns>
+    /// <exception cref="ArgumentException">Thrown when content is null or empty</exception>
+    /// <exception cref="ProtocolException">Thrown when the device returns an error</exception>
+    public async Task<Message> SendMessageAsync(Contact contact, string content, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(toContactId))
-            throw new ArgumentException("Contact ID cannot be null or empty", nameof(toContactId));
-
         if (string.IsNullOrEmpty(content))
             throw new ArgumentException("Message content cannot be null or empty", nameof(content));
 
-        _logger.LogMessageSendingStarted(toContactId, content.Length);
-        MeshCoreSdkEventSource.Log.MessageSendingStarted(toContactId, content.Length);
+        MeshCoreSdkEventSource.Log.MessageSendingStarted(contact.Name, content.Length);
 
-        var messageData = Encoding.UTF8.GetBytes($"{toContactId}\0{content}");
-        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_TXT_MSG, messageData);
+        var contactMessageParams = ContactMessageParams.Create(contact.PublicKey, content);
+        var payload = ContactMessageParamsSerialization.Instance.Serialize(contactMessageParams);
+
+        var response = await _transport.SendCommandAsync(MeshCoreCommand.CMD_SEND_TXT_MSG, payload, cancellationToken);
 
         var responseCode = response.GetResponseCode();
         switch (responseCode)
@@ -786,13 +793,11 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                 Message? message;
                 if (!MessageV3Serialization.Instance.TryDeserialize(response.Payload, out message) || (message == null))
                 {
-                    _logger.LogMessageSendingFailed(new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, "Failed to parse sent message"), toContactId);
-                    MeshCoreSdkEventSource.Log.MessageSendingFailed(toContactId, "Failed to parse sent message");
+                    MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, "Failed to parse sent message");
                     throw new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, 0x01, "Failed to parse sent message");
                 }
 
-                _logger.LogMessageSent(toContactId);
-                MeshCoreSdkEventSource.Log.MessageSent(toContactId);
+                MeshCoreSdkEventSource.Log.MessageSent(contact.Name);
 
                 return message;
 
@@ -802,8 +807,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                 var statusByte = status.HasValue ? (byte)status.Value : (byte)0x01;
                 var ex = new ProtocolException((byte)MeshCoreCommand.CMD_SEND_TXT_MSG, statusByte, "Failed to send message");
 
-                _logger.LogMessageSendingFailed(ex, toContactId);
-                MeshCoreSdkEventSource.Log.MessageSendingFailed(toContactId, ex.Message);
+                MeshCoreSdkEventSource.Log.MessageSendingFailed(contact.Name, ex.Message);
 
                 throw ex;
         }
@@ -851,7 +855,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                                 }
 
                                 _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
+                                Message?.Invoke(this, message);
                             }
                             catch (Exception parseEx)
                             {
@@ -872,7 +876,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                                 }
 
                                 _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
+                                Message?.Invoke(this, message);
                             }
                             catch (Exception parseEx)
                             {
@@ -893,7 +897,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                                 }
 
                                 _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
+                                Message?.Invoke(this, message);
                             }
                             catch (Exception parseEx)
                             {
@@ -914,7 +918,7 @@ public class MeshCoreClient : IDisposable, IChannelProvider
                                 }
 
                                 _logger.LogDebug("Retrieved message from {FromContactId} for device {DeviceId}", message.FromContactId, deviceId);
-                                MessageReceived?.Invoke(this, message);
+                                Message?.Invoke(this, message);
                             }
                             catch (Exception parseEx)
                             {
