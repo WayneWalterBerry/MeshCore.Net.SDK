@@ -42,6 +42,10 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+  packages: write
+
 env:
   DOTNET_VERSION: '8.0.x'
   
