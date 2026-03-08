@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "universe_allowlist": ["mission-impossible"],
+  "max_agents_per_universe": 20,
+  "overflow_strategy": "diegetic-expansion",
+  "exempt_names": ["Scribe", "Ralph", "@copilot"]
+}

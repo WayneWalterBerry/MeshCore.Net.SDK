@@ -1,0 +1,17 @@
+{
+  "assignments": [
+    {
+      "assignment_id": "meshcore-net-sdk-001",
+      "universe": "mission-impossible",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "requested_by": "dfberry",
+      "agents": [
+        { "name": "Ethan", "role": "Lead & Architect" },
+        { "name": "Luther", "role": ".NET Dev" },
+        { "name": "Brandt", "role": "Tester" },
+        { "name": "Benji", "role": "DevRel & Docs" },
+        { "name": "Ilsa", "role": "DevOps & Release" }
+      ]
+    }
+  ]
+}

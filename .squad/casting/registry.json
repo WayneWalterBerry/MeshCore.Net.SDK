@@ -1,0 +1,44 @@
+{
+  "agents": [
+    {
+      "persistent_name": "Ethan",
+      "universe": "mission-impossible",
+      "role": "Lead & Architect",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    {
+      "persistent_name": "Luther",
+      "universe": "mission-impossible",
+      "role": ".NET Dev",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    {
+      "persistent_name": "Brandt",
+      "universe": "mission-impossible",
+      "role": "Tester",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    {
+      "persistent_name": "Benji",
+      "universe": "mission-impossible",
+      "role": "DevRel & Docs",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    {
+      "persistent_name": "Ilsa",
+      "universe": "mission-impossible",
+      "role": "DevOps & Release",
+      "created_at": "2026-03-08T14:53:43.837Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  ]
+}
