@@ -11,10 +11,6 @@
 #    git tag v1.2.3
 #    git push origin v1.2.3
 #
-#    Or tag an existing commit (not just HEAD):
-#    git tag -a v1.2.3 <commit-sha> -m "Release v1.2.3"
-#    git push origin v1.2.3
-#
 # 4. The workflow will automatically:
 #    - Build and test the solution
 #    - Create a NuGet package with the version from the tag
@@ -29,9 +25,17 @@
 # 💡 NOTES:
 # - Use semantic versioning (e.g., v1.0.0, v2.1.3, v1.0.0-beta.1)
 # - Pre-release versions can use suffixes: v1.0.0-alpha, v1.0.0-rc.1
-# - The "v" prefix is required for the tag
+# - The "v" prefix is REQUIRED for the tag to trigger the release workflow
 # - CI builds on main use version format: 1.0.0-ci.{run_number}
-# - You can tag any existing commit; the workflow runs for the tagged commit snapshot
+#
+# ✅ CRITICAL (automatic):
+# - Build and test execution
+# - NuGet package creation
+# - GitHub release creation
+#
+# 🔧 OPTIONAL (requires configuration):
+# - NuGet.org publishing (only if NUGET_API_KEY secret is configured in repository settings)
+# - If the secret is not set, the package will still be attached to the GitHub release
 
 name: Build and Release
 
